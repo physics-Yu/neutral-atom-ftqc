@@ -5,7 +5,7 @@ from dataclasses import FrozenInstanceError
 import pytest
 
 from compiler.physical_ir import (
-    PhysicalInstruction, PhysicalOpcode, PhysicalTask, PhysicalTaskGraph,
+    PHYSICAL_ISA, PhysicalInstruction, PhysicalOpcode, PhysicalTask, PhysicalTaskGraph,
     ResourceDemand, physical_instruction_from_untrusted,
 )
 from contracts import CalibrationSnapshot, ContractValidationError, MachineConfig, ResourceSpec, ZoneKind, ZoneSpec
@@ -21,9 +21,11 @@ def machine() -> MachineConfig:
 
 def task(task_id: str, predecessors: tuple[str, ...] = ()) -> PhysicalTask:
     return PhysicalTask(
-        task_id, PhysicalInstruction(PhysicalOpcode.MOVE_ATOMS, ("a0",), {"target_um": [1, 2]}),
+        task_id, PhysicalInstruction(PhysicalOpcode.MOVE_ATOMS, ("a0",), {
+            "trajectory_id": "t", "source_zone_id": "storage", "destination_zone_id": "entangling",
+        }),
         predecessors=predecessors, resource_demands=(ResourceDemand("aod"),),
-        zone_ids=("storage",),
+        zone_ids=("storage", "entangling"),
     )
 
 
@@ -36,7 +38,10 @@ def test_physical_graph_round_trip_and_machine_validation() -> None:
 
 def test_contracts_are_deeply_immutable() -> None:
     instruction = PhysicalInstruction(
-        PhysicalOpcode.MOVE_ATOMS, ("a0",), {"target_um": [1, 2]}
+        PhysicalOpcode.MOVE_ATOMS, ("a0",), {
+            "trajectory_id": "t", "source_zone_id": "storage", "destination_zone_id": "entangling",
+            "target_um": [1, 2],
+        }
     )
     with pytest.raises(TypeError):
         instruction.parameters["new"] = 1  # type: ignore[index]
@@ -71,11 +76,28 @@ def test_serialized_logical_macro_cannot_enter_a_physical_graph() -> None:
 
 def test_unknown_zone_resource_capacity_and_missing_duration_are_rejected() -> None:
     with pytest.raises(ContractValidationError, match="unknown zones"):
-        PhysicalTaskGraph("g", 0, (PhysicalTask("t", PhysicalInstruction(PhysicalOpcode.MOVE_ATOMS), zone_ids=("moon",)),)).validate_against_machine(machine())
+        PhysicalTaskGraph("g", 0, (PhysicalTask("t", task("x").instruction, zone_ids=("moon",)),)).validate_against_machine(machine())
     with pytest.raises(ContractValidationError, match="unknown resource"):
-        PhysicalTaskGraph("g", 0, (PhysicalTask("t", PhysicalInstruction(PhysicalOpcode.MOVE_ATOMS), resource_demands=(ResourceDemand("missing"),)),)).validate_against_machine(machine())
+        PhysicalTaskGraph("g", 0, (PhysicalTask("t", task("x").instruction, resource_demands=(ResourceDemand("missing"),), zone_ids=("storage", "entangling")),)).validate_against_machine(machine())
     with pytest.raises(ContractValidationError, match="exceeds resource capacity"):
-        PhysicalTaskGraph("g", 0, (PhysicalTask("t", PhysicalInstruction(PhysicalOpcode.MOVE_ATOMS), resource_demands=(ResourceDemand("aod", 2),)),)).validate_against_machine(machine())
+        PhysicalTaskGraph("g", 0, (PhysicalTask("t", task("x").instruction, resource_demands=(ResourceDemand("aod", 2),), zone_ids=("storage", "entangling")),)).validate_against_machine(machine())
     with pytest.raises(ContractValidationError, match="no positive calibrated duration"):
-        PhysicalTaskGraph("g", 0, (PhysicalTask("t", PhysicalInstruction(PhysicalOpcode.WAIT)),)).validate_against_machine(machine())
+        PhysicalTaskGraph("g", 0, (PhysicalTask("t", PhysicalInstruction(PhysicalOpcode.WAIT, parameters={"duration_ns": 5}), resource_demands=(ResourceDemand("aod"),)),)).validate_against_machine(machine())
+
+
+def test_instruction_semantics_and_explicit_duration_are_enforced() -> None:
+    with pytest.raises(ContractValidationError, match="trajectory_id"):
+        PhysicalInstruction(PhysicalOpcode.MOVE_BLOCK, ("block",), {})
+    with pytest.raises(ContractValidationError, match="positive"):
+        PhysicalInstruction(PhysicalOpcode.WAIT, parameters={"duration_ns": 0})
+    graph = PhysicalTaskGraph("g", 0, (PhysicalTask(
+        "move", task("x").instruction, resource_demands=(ResourceDemand("aod"),),
+        zone_ids=("storage", "entangling"), duration_ns=25,
+    ),))
+    assert PhysicalTaskGraph.from_json(graph.to_json()) == graph
+    assert graph.tasks[0].resolved_duration_ns(machine()) == 25
+
+
+def test_every_v01_opcode_has_semantics() -> None:
+    assert set(PHYSICAL_ISA) == set(PhysicalOpcode)
 

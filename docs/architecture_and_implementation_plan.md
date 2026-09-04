@@ -275,6 +275,8 @@ Logical GHZ
 
 ### M2：Physical ISA v0.1 与中性原子降低
 
+状态：**已完成**。物理 opcode 语义、有限区域/资源、预配置轨迹和 GHZ QEC→物理 DAG lowering 已实现并由 `d=3`/`d=5` 测试覆盖；具体简化边界见 `docs/physical_lowering.md`。
+
 - 目标：把 GHZ 初始化与横向 CNOT 降低为完整物理任务 DAG。
 - 文件：`src/compiler/{compiler,physical_ir}.py`、新增 `src/compiler/lowering/`、`src/hardware/{geometry,zones}.py`、`tests/compiler/`。
 - 输入/输出：`QECProtocolIR + MachineConfig` -> `PhysicalTaskGraph`。
@@ -402,6 +404,6 @@ Logical GHZ
 4. 再冻结 syndrome/decoder/loss 物理协议，执行 M6-M7。
 5. 有实验参数后再执行 M8，避免过早把占位物理量固化为事实。
 
-在上述决策完成之前，不应开始大规模实现。M0 与 M1 已完成；下一项最小且有用的工作是 **M2：Physical ISA v0.1 与中性原子降低**。
+在上述决策完成之前，不应开始大规模实现。M0、M1 与 M2 已完成；下一项最小且有用的工作是 **M3：确定性 RESST 风格调度**。
 
 

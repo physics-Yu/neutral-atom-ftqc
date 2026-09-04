@@ -41,11 +41,11 @@ The logical algorithm is intentionally small. The demo is intended to expose the
 - machine-state evolution;
 - later: syndrome/QEC feedback and atom-loss recovery.
 
-## M1 implementation status
+## M2 implementation status
 
-M1 now provides executable builders for both `LogicalCircuitIR` and `QECProtocolIR` in `examples/ghz_surface_code.py`. The QEC expansion creates four encoded rotated-planar blocks and an explicit `d^2`-pair bijection for every transversal logical CNOT. The two layer-two CNOTs retain no dependency on one another.
+`examples/ghz_surface_code.py` now builds `LogicalCircuitIR`, `QECProtocolIR`, and a complete `PhysicalTaskGraph`. The QEC expansion creates four encoded rotated-planar blocks and an explicit `d^2`-pair bijection for every transversal logical CNOT. The two layer-two CNOTs retain no dependency on one another.
 
-No physical instruction, schedule, or simulated GHZ state is produced yet. See `surface_code_model.md` for the exact layout and boundary convention.
+Each transversal CNOT lowers to two block moves, pair alignment, target Hadamard, pairwise Rydberg CZ, target Hadamard, and two return moves. The `d=3` and `d=5` demo graphs each contain 29 physical tasks; pair widths scale with `d^2`. No schedule or simulated GHZ state is produced yet. See `physical_lowering.md` for the exact assumptions and limitations.
 
 ## First vertical slice
 

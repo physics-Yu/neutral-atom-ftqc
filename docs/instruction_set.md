@@ -1,6 +1,6 @@
 # Physical Experimental ISA v0.1
 
-Status: **M0 contract surface frozen; device semantics are completed in M2**.
+Status: **M2 Physical ISA v0.1 semantics frozen for the reference target**.
 
 ## Executable boundary
 
@@ -8,20 +8,20 @@ Only `PhysicalOpcode` values may cross into scheduling and digital-twin executio
 
 The v0.1 opcode set is:
 
-| Family | Opcode | Purpose |
-| --- | --- | --- |
-| Transport | `move_atoms` | Move explicitly identified atoms along a configured trajectory. |
-| Transport | `move_block` | Move a logical block as a configured rigid transform. |
-| Transport | `align_atoms` | Create a configured physical interaction geometry. |
-| Coherent control | `apply_1q_pulse` | Apply a physical single-atom pulse. |
-| Coherent control | `apply_2q_rydberg_gate` | Apply physical pairwise Rydberg gates. |
-| Observation | `image_atoms` | Produce atom-presence observations. |
-| Observation | `measure_atoms` | Produce physical measurement observations. |
-| Atom management | `reset_atoms` | Reinitialize atoms where a machine profile permits it. |
-| Atom management | `load_reservoir_atom` | Physically load a reservoir atom. |
-| Atom management | `place_atom` | Fill a vacant site with a replacement atom. |
-| Timing | `wait` | Advance time while explicitly retaining configured subjects/resources. |
-| Synchronization | `emit_sync` | Emit a device synchronization marker or trigger. |
+| Opcode | Required operands/parameters | Legal zone kinds | Required resource class | State/observation effect |
+| --- | --- | --- | --- | --- |
+| `move_atoms` | one or more atoms; trajectory/source/destination | all | transport | atom positions change |
+| `move_block` | one block; trajectory/source/destination | storage, entangling, readout | transport | block zone changes |
+| `align_atoms` | atoms; explicit pairs/profile | entangling | transport | interaction geometry changes |
+| `apply_1q_pulse` | atoms; operation/pulse ID | storage, entangling | one-qubit control | calibrated unitary |
+| `apply_2q_rydberg_gate` | atoms; gate/pulse ID/pairs | entangling | Rydberg control | pairwise calibrated interaction |
+| `image_atoms` | atoms; profile | storage, readout, reservoir | imaging | emits presence observations |
+| `measure_atoms` | atoms; basis/profile | readout | readout | emits destructive qubit measurements |
+| `reset_atoms` | atoms; state/profile/purpose | storage, readout, reservoir | reset | prepares configured basis state |
+| `load_reservoir_atom` | one atom; profile | reservoir | reservoir loading | adds usable reservoir atom |
+| `place_atom` | replacement and vacant site; destination/profile | storage, reservoir | transport | restores occupancy, not quantum data |
+| `wait` | explicit positive duration | all | clock | retains subjects/resources |
+| `emit_sync` | tag/channel | all | clock | emits synchronization marker |
 
 `PLACE_ATOM` restores site occupancy only. It never restores lost data-qubit information or clears a known erasure. Reservoir allocation is a classical loss-manager decision, not an opcode.
 
@@ -42,7 +42,8 @@ All top-level contracts use schema version `0.1`, immutable slotted dataclasses,
 - The initial `MachineConfig` requires storage, entangling, readout, and reservoir zones. Every zone and resource has a finite positive integer capacity.
 - `ResourceMode.EXCLUSIVE` represents RESST lock behavior; `SHARED` represents a capacity claim. Arbitration is deferred to M3.
 - `ConditionRef` records RESST-style message predicates and keep/consume behavior. Evaluation is deferred to M3/runtime work.
-- Detailed pulse fields, trajectories, collision checks, legal-zone matrices, and opcode state effects remain M2 decisions. The generic `parameters` mapping is JSON-only so these fields can be prototyped without permitting arbitrary Python objects across the boundary.
+- `PHYSICAL_ISA` is the executable registry for opcode family, legal zone kinds, resource classes, state effects, and observation production. The generic mapping remains JSON-only, but opcode-specific required fields are validated at construction.
+- A task has either a positive explicit `duration_ns` (used for configured transport trajectories) or a positive opcode duration in its calibration snapshot. Missing duration is an error.
 
 ## Boundary validation
 
@@ -65,7 +66,11 @@ An atom-loss observation must include `atom_id`, `block_id`, `site_id`, and `ato
       "instruction": {
         "opcode": "move_block",
         "operands": ["L0"],
-        "parameters": {"trajectory_id": "storage-to-entangling"}
+        "parameters": {
+          "trajectory_id": "storage-to-entangling",
+          "source_zone_id": "storage",
+          "destination_zone_id": "entangling"
+        }
       },
       "predecessors": [],
       "earliest_start_ns": 0,
@@ -83,16 +88,14 @@ An atom-loss observation must include `atom_id`, `block_id`, `site_id`, and `ato
 }
 ```
 
-## Intentionally deferred from M0
+## Intentionally deferred after M2
 
-M0 does not implement lowering, scheduling, device dispatch, state transitions, quantum simulation, decoder behavior, or visualization. It does not claim that the provisional opcode parameter fields are experimentally complete. M2 must replace provisional parameter conventions with per-opcode typed semantics before the ISA is declared device-ready.
+M2 does not implement scheduling, collision simulation, device dispatch, quantum-state evolution, decoder behavior, or visualization. M3 will arbitrate resource capacity and concurrency; M4 will execute state transitions. The reference pulse and trajectory values are explicit modeling inputs, not claims about a laboratory device.
 
-## M0 definition of done
+## M2 definition of done
 
-- Logical and physical IRs are distinct importable types.
-- The physical opcode enum contains no logical/QEC macro.
-- Machine configuration and observation contracts are versioned and serializable.
-- DAG, reference, unit, capacity, duration, and layer-crossing failures are executable tests.
-- `d=3` and `d=5` contract construction paths pass.
-- `pytest` passes without adding runtime dependencies.
+- Every opcode has validated operands/parameters, legal zones, required resource classes, and a documented effect.
+- Every physical task resolves to a strictly positive duration.
+- Logical and QEC macros remain unable to cross the physical boundary.
+- `d=3` and `d=5` GHZ protocols lower deterministically to physical-only DAGs with traceable transversal pairings.
 

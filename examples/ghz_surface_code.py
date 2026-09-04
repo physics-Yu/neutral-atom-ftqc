@@ -9,7 +9,10 @@ from compiler.logical_ir import (
     CodeFamily, LogicalCircuitIR, LogicalInitialState, LogicalOp, LogicalOpKind,
     LogicalQubitDecl,
 )
+from compiler.lowering.neutral_atom import lower_to_neutral_atom_tasks
+from compiler.physical_ir import PhysicalTaskGraph
 from compiler.qec_ir import QECProtocolIR
+from hardware.zones import build_reference_target
 from qec.surface_code import SurfaceCodeSpec, generate_surface_code_layout
 
 
@@ -50,16 +53,22 @@ def build_ghz_qec_protocol(distance: int = 3) -> QECProtocolIR:
     )
 
 
+def build_ghz_physical_graph(distance: int = 3) -> PhysicalTaskGraph:
+    return lower_to_neutral_atom_tasks(build_ghz_qec_protocol(distance), build_reference_target())
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--distance", type=int, default=3)
     args = parser.parse_args()
     protocol = build_ghz_qec_protocol(args.distance)
+    graph = build_ghz_physical_graph(args.distance)
     cnot_ops = [op for op in protocol.operations if op.kind.value == "transversal_cnot"]
     print(
         f"Built {protocol.protocol_id}: {len(protocol.blocks)} blocks, "
         f"{len(protocol.operations)} QEC operations, "
-        f"{len(cnot_ops[0].pairings)} physical pairs per transversal CNOT."
+        f"{len(cnot_ops[0].pairings)} physical pairs per transversal CNOT; "
+        f"lowered to {len(graph.tasks)} physical tasks."
     )
 
 
