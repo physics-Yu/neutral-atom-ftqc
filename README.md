@@ -17,10 +17,13 @@ Logical circuit
   -> decoder + runtime feedback
 ```
 
-The lowest executable layer must contain only operations that the experimental platform can actually issue. Logical operations such as `LOGICAL_CNOT` and `SYNDROME_ROUND` are compiler abstractions and must be lowered before scheduling/execution.
+The lowest executable layer contains only operations that an experimental platform can issue. Logical operations such as `LOGICAL_CNOT` and `SYNDROME_ROUND` are compiler abstractions and must be lowered before scheduling or execution.
 
 ## Current status
 
-Architecture/scaffolding phase. The immediate next task is to design **Physical ISA v0.1** and its resource/scheduling semantics before implementing the simulator stack.
+M0 is complete: schema-v0.1 logical IR, physical task-DAG, machine-configuration, and observation contracts are implemented with validation, canonical JSON round trips, and contract tests. Physical opcode parameter semantics remain intentionally deferred to M2.
 
-See `AGENTS.md` for project-wide constraints and `docs/` for design notes.
+The next implementation milestone is **M1: surface-code model and GHZ logical/QEC IR**.
+
+See `AGENTS.md` for project-wide constraints and `docs/architecture_and_implementation_plan.md` for the milestone plan.
+
