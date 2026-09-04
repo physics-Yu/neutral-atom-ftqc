@@ -41,6 +41,12 @@ The logical algorithm is intentionally small. The demo is intended to expose the
 - machine-state evolution;
 - later: syndrome/QEC feedback and atom-loss recovery.
 
+## M1 implementation status
+
+M1 now provides executable builders for both `LogicalCircuitIR` and `QECProtocolIR` in `examples/ghz_surface_code.py`. The QEC expansion creates four encoded rotated-planar blocks and an explicit `d^2`-pair bijection for every transversal logical CNOT. The two layer-two CNOTs retain no dependency on one another.
+
+No physical instruction, schedule, or simulated GHZ state is produced yet. See `surface_code_model.md` for the exact layout and boundary convention.
+
 ## First vertical slice
 
 The first executable GHZ milestone should omit stochastic noise, atom loss, and full decoding. It should prove that:
@@ -60,3 +66,4 @@ The second logical layer is an explicit scheduling test: its two CNOTs are logic
 ## Later extension
 
 After the baseline works, insert explicit QEC rounds and then deterministic atom-loss scenarios with reservoir refill and dynamic rescheduling.
+

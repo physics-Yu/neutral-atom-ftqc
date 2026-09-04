@@ -21,9 +21,10 @@ The lowest executable layer contains only operations that an experimental platfo
 
 ## Current status
 
-M0 is complete: schema-v0.1 logical IR, physical task-DAG, machine-configuration, and observation contracts are implemented with validation, canonical JSON round trips, and contract tests. Physical opcode parameter semantics remain intentionally deferred to M2.
+M0 and M1 are complete. The repository now includes schema-v0.1 boundary contracts, a distance-parameterized rotated planar surface-code layout, immutable logical blocks and Pauli frames, a QEC protocol IR, and a four-block GHZ builder with explicit transversal data-site pairings. Contract and model tests cover both `d=3` and `d=5`.
 
-The next implementation milestone is **M1: surface-code model and GHZ logical/QEC IR**.
+The next implementation milestone is **M2: Physical ISA semantics and neutral-atom lowering**. No QEC macro is physically executable yet.
 
 See `AGENTS.md` for project-wide constraints and `docs/architecture_and_implementation_plan.md` for the milestone plan.
+
 

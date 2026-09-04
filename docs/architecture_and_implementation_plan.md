@@ -255,7 +255,7 @@ Logical GHZ
 
 ## 8. 实施里程碑
 
-### M0：契约冻结与验证骨架
+### M0：契约冻结与验证骨架（已完成）
 
 - 目标：冻结 IR/事件/配置的 v0.1 Python 类型与边界验证规则。
 - 文件：`src/compiler/logical_ir.py`、`src/compiler/physical_ir.py`、新增 `src/contracts/`、`tests/contracts/`，更新 `docs/instruction_set.md`。
@@ -264,10 +264,10 @@ Logical GHZ
 - 测试：序列化往返、无环图、未知依赖、重复 ID、逻辑宏越界、非法单位/区域；`d=3` 与轻量 `d=5` fixture。
 - 完成定义：类型可导入、schema version 固定、所有非法层穿越被拒绝、`pytest` 通过、文档与类型一致；不包含调度或量子仿真。
 
-### M1：表面码模型与 GHZ 逻辑/QEC IR
+### M1：表面码模型与 GHZ 逻辑/QEC IR（已完成）
 
 - 目标：从配置生成距离无关布局，构造四块 GHZ 逻辑图和横向 CNOT 配对。
-- 文件：`src/qec/{surface_code,logical_qubit,pauli_frame}.py`、`src/compiler/logical_ir.py`、`examples/ghz_surface_code.py`、`tests/qec/`。
+- 文件：`src/qec/{surface_code,logical_qubit,pauli_frame}.py`、`src/compiler/{logical_ir,qec_ir,compiler}.py`、`examples/ghz_surface_code.py`、`tests/qec/`。
 - 输入/输出：`SurfaceCodeSpec(distance, layout_kind)` -> `SurfaceCodeLayout`；GHZ builder -> `LogicalCircuitIR`；QEC expansion -> `QECProtocolIR`。
 - 依赖：M0；需决定旋转/非旋转码、边界方向与物理位点计数。
 - 测试：稳定子/位点 ID 唯一、控制目标双射、依赖层正确、`d=3`/`d=5` 参数化、非法偶数距离失败。
@@ -402,5 +402,6 @@ Logical GHZ
 4. 再冻结 syndrome/decoder/loss 物理协议，执行 M6-M7。
 5. 有实验参数后再执行 M8，避免过早把占位物理量固化为事实。
 
-在上述决策完成之前，不应开始大规模实现。下一项最小且有用的工作是 **M0：契约冻结与验证骨架**。
+在上述决策完成之前，不应开始大规模实现。M0 与 M1 已完成；下一项最小且有用的工作是 **M2：Physical ISA v0.1 与中性原子降低**。
+
 
