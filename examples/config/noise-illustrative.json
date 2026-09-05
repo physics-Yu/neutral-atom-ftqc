@@ -1,0 +1,12 @@
+{
+  "config_id": "illustrative-noise-v0.1",
+  "parameter_source": "synthetic software demonstration parameters; not fitted to a device or publication",
+  "one_qubit_error_probability": 0.002,
+  "two_qubit_error_probability": 0.005,
+  "reset_error_probability": 0.001,
+  "measurement_flip_probability": 0.01,
+  "syndrome_flip_probability": 0.01,
+  "loss_probability_at_imaging": 0.002,
+  "rydberg_crosstalk_probability_per_neighbor": 0.003
+}
+

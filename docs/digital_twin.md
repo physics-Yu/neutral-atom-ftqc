@@ -12,7 +12,7 @@ Each `TrajectorySpec` contains fixed integer-micrometer waypoints, a positive du
 
 The reference storage/entangling directions share one bidirectional corridor; storage/readout and reservoir/storage use separate corridors. Capacity one prohibits overlap. A capacity greater than one is only appropriate when the configured hardware model asserts that many collision-free lanes.
 
-This is a conservative route-conflict graph, not a continuous multi-agent path planner. It catches declared shared corridors and the executor rejects missing declarations. It does not derive intersections from waypoint geometry, integrate acceleration, enforce minimum atom separation, or model AOD waveform/crosstalk. Those are explicit higher-fidelity extensions, not assumed collision-free behavior.
+This remains a conservative route-conflict graph, not a continuous multi-agent path planner. M8 checks waypoint-segment intersections and rejects route pairs that intersect without a shared conflict group; every route also declares a minimum-clearance assumption and maximum average polyline speed. It does not integrate acceleration, prove continuous multi-atom separation, or model AOD waveforms.
 
 ## Machine state and opcode effects
 
@@ -32,5 +32,5 @@ The mutable `MachineState` is cloned at run start, so execution does not mutate 
 
 ## Ideal-backend boundary
 
-`StateBackend` isolates quantum-state semantics from machine execution. The M4 `DeterministicIdealBackend` is a symbolic Clifford-like label tracker with reproducible measurement branches. It is sufficient for state-transition and replay tests, but it is not a stabilizer/amplitude simulator, does not model Born statistics, and does not prove GHZ fidelity or fault tolerance. M6/M7 add explicit syndrome, decoder, deterministic loss, and recovery control flow around this backend; stochastic physical noise remains M8 work.
+`StateBackend` isolates quantum-state semantics from machine execution. The M4 `DeterministicIdealBackend` is a symbolic Clifford-like label tracker with reproducible measurement branches. M8 overlays seeded Pauli flags, readout/syndrome flips, imaging loss, and overlap-dependent Rydberg crosstalk without turning that backend into an amplitude or full stabilizer simulator. It does not model Born statistics and does not prove GHZ fidelity, a threshold, or fault tolerance.
 

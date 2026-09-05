@@ -30,6 +30,8 @@ class AtomState:
     known_erasure: bool = False
     qubit_label: QubitLabel = QubitLabel.ZERO
     trajectory_id: str | None = None
+    pauli_x_error: bool = False
+    pauli_z_error: bool = False
 
     def __post_init__(self) -> None:
         require_id(self.atom_id, "atom ID")
@@ -40,6 +42,8 @@ class AtomState:
                 require_id(value, name)
         if not isinstance(self.qubit_label, QubitLabel):
             raise ContractValidationError("qubit label must be a QubitLabel")
+        if not isinstance(self.pauli_x_error, bool) or not isinstance(self.pauli_z_error, bool):
+            raise ContractValidationError("physical Pauli error flags must be booleans")
 
 
 @dataclass(slots=True)
@@ -68,3 +72,4 @@ class BlockState:
         require_id(self.block_id, "block ID")
         for site_id in self.site_ids:
             require_id(site_id, "block site ID")
+

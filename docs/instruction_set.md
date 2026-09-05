@@ -96,7 +96,7 @@ An atom-loss observation must include `atom_id`, `block_id`, `site_id`, and `ato
 
 ## Intentionally deferred after M4
 
-M4 does not implement continuous collision dynamics, automated path planning, device dispatch, stochastic loss/noise, decoder behavior, or visualization. Routing conflicts are conservative named-corridor constraints over configured waypoint paths; geometric intersection and minimum-separation analysis remain higher-fidelity work. The reference pulse, path, capacity, and timing values are explicit modeling inputs, not laboratory calibration claims.
+M4 itself does not implement continuous collision dynamics, automated path planning, device dispatch, stochastic loss/noise, decoder behavior, or visualization. M8 adds route-intersection auditing, declared clearance/speed limits, and a seeded executor noise overlay; it still does not prove continuous collision avoidance. The reference pulse, path, capacity, timing, and illustrative error values are explicit modeling inputs, not laboratory calibration claims.
 
 ## M4 definition of done
 

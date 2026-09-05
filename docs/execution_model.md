@@ -56,6 +56,12 @@ The runtime controller composes logical and sparse physical Pauli frames and pub
 
 Data recovery appends a complete physical syndrome round and passes both syndrome history and the known local erasure to the erasure-aware decoder. Only a `recovered` result lets `RuntimeController` clear erasure metadata and restore the replacement atom's data role.
 
+## M8 seeded noise and ensembles
+
+`NoiseConfig` names every probability and its parameter source. `SeededNoiseModel` derives each draw from a stable hash of seed, config, channel, task, and atom/pair identity, so results do not depend on incidental iteration order. The executor records every sampled event and the trace records the exact config ID and seed.
+
+One- and two-qubit faults update per-atom Pauli flags; measurement and syndrome channels may flip reported bits; accumulated loss is sampled at an explicit `IMAGE_ATOMS` boundary. Concurrent Rydberg work increases the configured pair error probability according to the number of overlapping Rydberg tasks. `run_noise_ensemble` reports per-seed event/loss/observation counts and aggregate means without hiding individual shots.
+
 ## Dynamic runtime target
 
 The target runtime loop is conceptually:

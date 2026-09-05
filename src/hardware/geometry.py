@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import hypot
 
 from contracts.common import ContractValidationError, require_id
 
@@ -41,6 +42,8 @@ class TrajectorySpec:
     waypoints: tuple[Point2D, ...]
     duration_ns: int
     conflict_group_ids: tuple[str, ...]
+    minimum_clearance_um: float = 0.0
+    max_speed_um_per_us: float | None = None
 
     def __post_init__(self) -> None:
         for value, name in ((self.trajectory_id, "trajectory_id"), (self.source_zone_id, "source_zone_id"), (self.destination_zone_id, "destination_zone_id")):
@@ -57,6 +60,18 @@ class TrajectorySpec:
             raise ContractValidationError("trajectory conflict groups must be unique")
         for group_id in self.conflict_group_ids:
             require_id(group_id, "trajectory conflict group ID")
+        if not isinstance(self.minimum_clearance_um, (int, float)) or isinstance(self.minimum_clearance_um, bool) or self.minimum_clearance_um < 0:
+            raise ContractValidationError("trajectory minimum clearance must be non-negative")
+        if self.max_speed_um_per_us is not None:
+            if not isinstance(self.max_speed_um_per_us, (int, float)) or isinstance(self.max_speed_um_per_us, bool) or self.max_speed_um_per_us <= 0:
+                raise ContractValidationError("trajectory maximum speed must be positive")
+            distance_um = sum(
+                hypot(right.x_um - left.x_um, right.y_um - left.y_um)
+                for left, right in zip(self.waypoints, self.waypoints[1:])
+            )
+            actual_speed = distance_um / (self.duration_ns / 1_000)
+            if actual_speed > self.max_speed_um_per_us:
+                raise ContractValidationError("trajectory exceeds its configured maximum speed")
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,6 +90,14 @@ class MachineGeometry:
         for item in self.trajectories:
             if {item.source_zone_id, item.destination_zone_id} - known:
                 raise ContractValidationError("trajectory references an unknown geometry zone")
+        for index, left in enumerate(self.trajectories):
+            for right in self.trajectories[index + 1:]:
+                if _trajectories_intersect(left, right) and not (
+                    set(left.conflict_group_ids) & set(right.conflict_group_ids)
+                ):
+                    raise ContractValidationError(
+                        "intersecting trajectories must share a routing conflict group"
+                    )
 
     def trajectory(self, source_zone_id: str, destination_zone_id: str) -> TrajectorySpec:
         for item in self.trajectories:
@@ -87,3 +110,35 @@ class MachineGeometry:
             if item.trajectory_id == trajectory_id:
                 return item
         raise ContractValidationError(f"unknown trajectory {trajectory_id!r}")
+
+
+def _trajectories_intersect(left: TrajectorySpec, right: TrajectorySpec) -> bool:
+    return any(
+        _segments_intersect(a, b, c, d)
+        for a, b in zip(left.waypoints, left.waypoints[1:])
+        for c, d in zip(right.waypoints, right.waypoints[1:])
+    )
+
+
+def _segments_intersect(a: Point2D, b: Point2D, c: Point2D, d: Point2D) -> bool:
+    def orientation(p: Point2D, q: Point2D, r: Point2D) -> int:
+        value = (q.y_um - p.y_um) * (r.x_um - q.x_um) - (q.x_um - p.x_um) * (r.y_um - q.y_um)
+        return (value > 0) - (value < 0)
+
+    def on_segment(p: Point2D, q: Point2D, r: Point2D) -> bool:
+        return (
+            min(p.x_um, r.x_um) <= q.x_um <= max(p.x_um, r.x_um)
+            and min(p.y_um, r.y_um) <= q.y_um <= max(p.y_um, r.y_um)
+        )
+
+    o1, o2 = orientation(a, b, c), orientation(a, b, d)
+    o3, o4 = orientation(c, d, a), orientation(c, d, b)
+    if o1 != o2 and o3 != o4:
+        return True
+    return (
+        (o1 == 0 and on_segment(a, c, b))
+        or (o2 == 0 and on_segment(a, d, b))
+        or (o3 == 0 and on_segment(c, a, d))
+        or (o4 == 0 and on_segment(c, b, d))
+    )
+

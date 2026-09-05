@@ -38,5 +38,6 @@ M3 is static: it does not mutate a graph while scheduling, evaluate measurements
 - Zone quantities are active-interval capacity reservations, not a persistent occupancy simulation.
 - Resource demands name concrete configured resources; class-to-device allocation is deferred.
 - Fixed intervals are immutable reservations and are rejected if they already overbook capacity.
-- There is no preemption, setup-time insertion, continuous travel-path dynamics, automatic geometric intersection discovery, stochastic duration, or crosstalk model.
+- There is no preemption, setup-time insertion, continuous acceleration/path planning, or stochastic duration. M8 geometry validation discovers segment intersections and requires shared conflict groups; execution separately samples overlap-dependent Rydberg crosstalk, but the scheduler does not optimize an expected-error objective.
 - M2 reference timings remain illustrative inputs rather than laboratory calibration claims.
+

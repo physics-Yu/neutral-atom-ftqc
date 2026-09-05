@@ -87,9 +87,20 @@ python examples/ghz_surface_code.py --distance 3 --inject-loss --visualize artif
 
 The scenario loses `block-L2/data-r1-c1` at an explicit imaging boundary, records the known erasure, allocates `reservoir-spare-0`, inserts physical placement/reset/verification plus a complete syndrome round into graph revision 2, partially reschedules those 29 inserted tasks, invokes the erasure-aware decoder, and only then resolves the data erasure. The merged offline timeline includes loss registration, reservoir allocation, DAG mutation, decoder completion, and erasure resolution.
 
+## M8 seeded-noise ensemble
+
+M8 appends one final surveillance image to the one-round syndrome workload and runs independent, reproducible seeds:
+
+```powershell
+$env:PYTHONPATH = "src;."
+python examples/ghz_surface_code.py --distance 3 --profile low --noise-config examples/config/noise-illustrative.json --shots 16 --seed 100 --noise-summary artifacts/noise-d3.json --visualize artifacts/noise-d3.html
+```
+
+The artifact includes sampled noise events and embeds the noise config ID, seed, and parameter-source label. The same path supports `--distance 5`; its M8 graph has 146 physical tasks. The illustrative probabilities are synthetic software inputs, not measured hardware parameters.
+
 ## First vertical slice
 
-The executable GHZ milestones still omit stochastic noise and full quantum-state fidelity. They prove that:
+The executable GHZ milestones still omit full quantum-state fidelity and calibrated device physics. They prove that:
 
 ```text
 Logical GHZ circuit
@@ -103,8 +114,6 @@ is coherent end-to-end.
 
 The second logical layer is an explicit scheduling test: its two CNOTs are logically independent, but the physical scheduler may run them in parallel or serialize them depending on entangling-zone and hardware-resource capacity.
 
-## Later extension
-
-M8 will add configurable stochastic noise and higher-fidelity loss/decoder physics without changing the deterministic M7 contracts.
+M8 preserves the deterministic M7 contracts when the ideal noise config is selected. The nonzero model validates event plumbing and scaling, not logical GHZ fidelity or decoder threshold.
 
 

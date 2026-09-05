@@ -21,9 +21,7 @@ The lowest executable layer contains only operations that an experimental platfo
 
 ## Current status
 
-M0 through M7 are complete. In addition to compilation, physical scheduling, digital-twin execution, visualization, syndrome extraction, and decoder feedback, the repository now supports deterministic atom-loss injection, explicit detection, finite reservoir allocation, physical refill, erasure-aware decoding, versioned physical-DAG mutation, and partial rescheduling. Contract and model tests cover both `d=3` and `d=5`.
-
-The next implementation milestone is **M8: configurable stochastic noise, higher-fidelity physics, and scaling validation**.
+M0 through M8 are complete. The executable stack now includes compilation, physical scheduling, digital-twin execution, visualization, syndrome/decoder feedback, deterministic atom-loss recovery, and seeded configurable gate, measurement, syndrome, imaging-loss, and parallel-Rydberg crosstalk noise. Route geometry is audited for undeclared intersections and speed limits, while ensemble summaries and tests cover both `d=3` and `d=5`.
 
 Run the complete measured baseline with `python examples/ghz_surface_code.py --distance 3 --execute --measure` after setting `PYTHONPATH=src;.` on Windows.
 
@@ -49,6 +47,15 @@ Run and visualize the deterministic M7 recoverable-loss scenario with:
 $env:PYTHONPATH = "src;."
 python examples/ghz_surface_code.py --distance 3 --inject-loss --visualize artifacts/ghz-loss-d3.html
 ```
+
+Run the seeded M8 ensemble and emit both a statistical summary and a noisy trace artifact with:
+
+```powershell
+$env:PYTHONPATH = "src;."
+python examples/ghz_surface_code.py --distance 3 --profile low --noise-config examples/config/noise-illustrative.json --shots 16 --seed 100 --noise-summary artifacts/noise-d3.json --visualize artifacts/noise-d3.html
+```
+
+The bundled nonzero probabilities are explicitly synthetic demonstration inputs, not device calibration or a logical-fidelity claim. See `docs/noise_and_scaling.md` for semantics and limitations.
 
 See `AGENTS.md` for project-wide constraints and `docs/architecture_and_implementation_plan.md` for the milestone plan.
 

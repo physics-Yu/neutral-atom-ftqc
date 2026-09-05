@@ -31,7 +31,10 @@ from scheduler.task import ScheduleRequest, TimedSchedule
 from simulator.executor import DigitalTwinExecutor, ExecutionResult
 from runtime.controller import RuntimeController, RuntimeCycleResult
 from runtime.mutation import DagMutation, RescheduleResult, reschedule_after_mutation
-from simulator.noise import DeterministicLossModel, LossInjection
+from simulator.benchmark import ExperimentSummary, run_noise_ensemble
+from simulator.noise import (
+    DeterministicLossModel, LossInjection, NoiseConfig, SeededNoiseModel,
+)
 from visualization import (
     VisualizationRun, build_visualization_bundle, build_visualization_run,
     combine_visualization_runs, write_visualization_artifact,
@@ -331,6 +334,66 @@ def build_ghz_loss_visualization_run(
     )
 
 
+def build_ghz_noise_graph(
+    distance: int = 3, profile: str = "low",
+) -> tuple[NeutralAtomTarget, QECProtocolIR, PhysicalTaskGraph, MachineState]:
+    """Build syndrome, logical readout, and final presence surveillance."""
+
+    target = build_profile_target(profile)
+    protocol = build_ghz_qec_protocol(
+        distance, include_measurements=True, syndrome_rounds=1,
+    )
+    base = lower_to_neutral_atom_tasks(protocol, target)
+    depended_on = {parent for task in base.tasks for parent in task.predecessors}
+    terminals = tuple(task.task_id for task in base.tasks if task.task_id not in depended_on)
+    atom_ids = tuple(
+        f"{block.block_id}/{site_id}" for block in protocol.blocks
+        for site_id in block.data_site_ids + block.ancilla_site_ids
+    )
+    surveillance = PhysicalTask(
+        "m8-final-presence-surveillance",
+        PhysicalInstruction(PhysicalOpcode.IMAGE_ATOMS, atom_ids, {
+            "profile": "m8-final-presence-v0.1",
+        }),
+        predecessors=terminals,
+        resource_demands=(ResourceDemand(target.bindings.imaging_resource_id, mode=ResourceMode.SHARED),),
+        zone_ids=(target.bindings.storage_zone_id,),
+        zone_demands=(ZoneDemand(target.bindings.storage_zone_id, len(atom_ids)),),
+    )
+    graph = PhysicalTaskGraph(base.graph_id, base.revision + 1, base.tasks + (surveillance,))
+    return target, protocol, graph, MachineState.from_protocol(protocol, target)
+
+
+def run_ghz_noise_benchmark(
+    distance: int = 3, profile: str = "low", *,
+    config: NoiseConfig | None = None, shots: int = 16, seed: int = 0,
+) -> ExperimentSummary:
+    if shots <= 0 or seed < 0:
+        raise ValueError("noise benchmark requires positive shots and a non-negative seed")
+    target, _, graph, state = build_ghz_noise_graph(distance, profile)
+    _, summary = run_noise_ensemble(
+        graph, target, state, config or NoiseConfig.ideal(),
+        tuple(range(seed, seed + shots)), run_prefix=f"ghz-m8-d{distance}",
+    )
+    return summary
+
+
+def build_ghz_noise_visualization_run(
+    distance: int, profile: str, config: NoiseConfig, seed: int,
+) -> VisualizationRun:
+    target, _, graph, state = build_ghz_noise_graph(distance, profile)
+    schedule = schedule_physical_tasks(ScheduleRequest(
+        f"ghz-m8-visual-d{distance}", graph, target.machine,
+    ))
+    result = DigitalTwinExecutor(
+        target, noise_model=SeededNoiseModel(config, seed),
+    ).execute(f"ghz-m8-visual-d{distance}-s{seed}", graph, schedule, state)
+    return build_visualization_run(
+        f"{config.config_id} · seed={seed} · d={distance}",
+        target, graph, schedule, result,
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--distance", type=int, default=3)
@@ -342,9 +405,18 @@ def main() -> None:
     parser.add_argument("--syndrome-rounds", type=int, default=0, help="append this many explicit stabilizer-extraction rounds per block")
     parser.add_argument("--decode", action="store_true", help="decode syndrome observations and release a feedback barrier")
     parser.add_argument("--inject-loss", action="store_true", help="run deterministic M7 data-loss recovery with one reservoir spare")
+    parser.add_argument("--noise-config", type=Path, metavar="CONFIG.json", help="run the M8 seeded-noise ensemble using this explicit config")
+    parser.add_argument("--shots", type=int, default=16, help="number of seeded M8 ensemble shots")
+    parser.add_argument("--seed", type=int, default=0, help="first non-negative M8 ensemble seed")
+    parser.add_argument("--noise-summary", type=Path, metavar="SUMMARY.json", help="write the M8 ensemble summary JSON")
     args = parser.parse_args()
     if args.decode and args.syndrome_rounds <= 0:
         parser.error("--decode requires --syndrome-rounds >= 1")
+    if args.shots <= 0 or args.seed < 0:
+        parser.error("--shots must be positive and --seed must be non-negative")
+    if args.noise_summary and not args.noise_config:
+        parser.error("--noise-summary requires --noise-config")
+    noise_config = NoiseConfig.from_json(args.noise_config.read_text(encoding="utf-8")) if args.noise_config else None
     include_measurements = args.measure or args.visualize is not None
     protocol = build_ghz_qec_protocol(args.distance, include_measurements, args.syndrome_rounds)
     target = build_profile_target(args.profile)
@@ -368,6 +440,10 @@ def main() -> None:
     if args.visualize:
         if args.inject_loss:
             runs = (build_ghz_loss_visualization_run(args.distance, args.profile),)
+        elif noise_config is not None:
+            runs = (build_ghz_noise_visualization_run(
+                args.distance, args.profile, noise_config, args.seed,
+            ),)
         else:
             profiles = ("low", "high") if args.compare_resources else (args.profile,)
             runs = tuple(
@@ -396,6 +472,21 @@ def main() -> None:
             f"{loss_run.reschedule.graph.revision}; decoder status "
             f"{feedback.decoder_result.status.value} at {feedback.available_at_ns} ns."
         )
+    if args.noise_config:
+        summary = run_ghz_noise_benchmark(
+            args.distance, args.profile, config=noise_config,
+            shots=args.shots, seed=args.seed,
+        )
+        print(
+            f"M8 ensemble {summary.noise_config_id}: {len(summary.shots)} shots, "
+            f"{summary.total_noise_events} sampled noise events, "
+            f"{summary.runs_with_loss} run(s) with imaged atom loss; "
+            f"parameters: {summary.parameter_source}."
+        )
+        if args.noise_summary:
+            args.noise_summary.parent.mkdir(parents=True, exist_ok=True)
+            args.noise_summary.write_text(summary.to_json() + "\n", encoding="utf-8")
+            print(f"Wrote M8 statistical summary {args.noise_summary}.")
 
 
 if __name__ == "__main__":

@@ -30,5 +30,5 @@ Mutations are optimistic-concurrency updates against an exact graph ID/revision.
 - The ideal backend returns zero stabilizer bits and does not simulate amplitude loss, leakage, correlated transport loss, or measurement error.
 - Active in-flight intervals can be supplied as fixed intervals, but the bundled demo mutates at a task boundary where no instruction remains active.
 
-These simplifications make event ownership, physical refill semantics, graph revisioning, and timing observable while leaving stochastic/calibrated physics for M8.
+These simplifications make event ownership, physical refill semantics, graph revisioning, and timing observable. M8 adds seeded accumulated imaging loss and Pauli/readout channels, but recovery correctness under correlated calibrated device noise remains future validation.
 

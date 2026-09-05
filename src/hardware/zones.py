@@ -129,11 +129,11 @@ def build_reference_target() -> NeutralAtomTarget:
             ZoneGeometry("reservoir", Point2D(0, 150), 100, 100),
         ),
         trajectories=(
-            TrajectorySpec("storage-to-entangling", "storage", "entangling", (Point2D(100, 50), Point2D(150, 50)), 50_000, ("corridor-storage-entangling",)),
-            TrajectorySpec("entangling-to-storage", "entangling", "storage", (Point2D(150, 50), Point2D(100, 50)), 50_000, ("corridor-storage-entangling",)),
-            TrajectorySpec("storage-to-readout", "storage", "readout", (Point2D(100, 50), Point2D(300, 50)), 80_000, ("corridor-storage-readout",)),
-            TrajectorySpec("readout-to-storage", "readout", "storage", (Point2D(300, 50), Point2D(100, 50)), 80_000, ("corridor-storage-readout",)),
-            TrajectorySpec("reservoir-to-storage", "reservoir", "storage", (Point2D(50, 150), Point2D(50, 100)), 40_000, ("corridor-reservoir-storage",)),
+            TrajectorySpec("storage-to-entangling", "storage", "entangling", (Point2D(100, 50), Point2D(150, 50)), 50_000, ("corridor-storage-entangling",), 5.0, 4.0),
+            TrajectorySpec("entangling-to-storage", "entangling", "storage", (Point2D(150, 50), Point2D(100, 50)), 50_000, ("corridor-storage-entangling",), 5.0, 4.0),
+            TrajectorySpec("storage-to-readout", "storage", "readout", (Point2D(100, 50), Point2D(300, 50)), 80_000, ("corridor-storage-readout", "corridor-storage-entangling"), 5.0, 4.0),
+            TrajectorySpec("readout-to-storage", "readout", "storage", (Point2D(300, 50), Point2D(100, 50)), 80_000, ("corridor-storage-readout", "corridor-storage-entangling"), 5.0, 4.0),
+            TrajectorySpec("reservoir-to-storage", "reservoir", "storage", (Point2D(50, 150), Point2D(50, 100)), 40_000, ("corridor-reservoir-storage",), 5.0, 4.0),
         ),
     )
     bindings = HardwareResourceBindings(
@@ -141,3 +141,4 @@ def build_reference_target() -> NeutralAtomTarget:
         "rydberg-0", "camera-0", "readout-0", "reset-0", "loader-0", "clock-0",
     )
     return NeutralAtomTarget(machine, geometry, bindings)
+

@@ -1,0 +1,12 @@
+{
+  "config_id": "ideal-noise-v0.1",
+  "parameter_source": "software ideal: all probabilities are zero",
+  "one_qubit_error_probability": 0.0,
+  "two_qubit_error_probability": 0.0,
+  "reset_error_probability": 0.0,
+  "measurement_flip_probability": 0.0,
+  "syndrome_flip_probability": 0.0,
+  "loss_probability_at_imaging": 0.0,
+  "rydberg_crosstalk_probability_per_neighbor": 0.0
+}
+

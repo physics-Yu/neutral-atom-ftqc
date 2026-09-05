@@ -8,7 +8,7 @@ M5 supplies a read-only boundary from `PhysicalTaskGraph + TimedSchedule + Execu
 
 - target zones, dimensions, finite capacities, resources, and configured trajectory conflict groups;
 - physical opcode tasks with start/end times, operands, resources, zones, provenance, scheduler wait reasons, and blockers;
-- replayable trace events, state snapshots, observations, makespan, resource wait, and peak parallelism.
+- replayable trace events, state snapshots, observations, makespan, resource wait, peak parallelism, and M8 noise metadata/events when present.
 
 `write_visualization_artifact` emits a standalone `.html` and an inspectable `.json` sidecar. The HTML embeds the JSON, CSS, and JavaScript and performs no network fetches, so it can be opened directly from disk.
 
@@ -33,7 +33,7 @@ pytest
 ## Explicit simplifications
 
 - Spatial marks represent encoded blocks, not a to-scale drawing of every atom or optical field.
-- Motion interpolation follows the configured waypoint polyline. Collision/conflict truth comes from the physical task's named corridor resources and M3/M4 validation, not from geometric intersection calculations in the viewer.
+- Motion interpolation follows the configured waypoint polyline. Collision/conflict truth comes from the physical task's named corridor resources and geometry validation, not from the viewer.
 - M7 can merge multiple absolute-time execution segments and runtime mutation events into one offline timeline; this remains replay visualization rather than live device streaming.
-- The deterministic symbolic backend validates execution and visualization contracts but does not establish encoded GHZ fidelity, noise performance, or experimental timing.
+- The deterministic symbolic backend plus seeded M8 fault overlay validates execution, replay, and statistical plumbing but does not establish encoded GHZ fidelity, calibrated noise performance, or experimental timing.
 

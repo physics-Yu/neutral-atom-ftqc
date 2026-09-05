@@ -118,6 +118,19 @@ def build_visualization_run(
         ),
         "logical_op_ids": list(item.provenance.logical_op_ids),
     } for item in result.trace.events]
+    events.extend({
+        "event_id": item.event_id,
+        "kind": f"noise_{item.kind.value}",
+        "time_ns": item.occurred_at_ns,
+        "task_id": item.task_id,
+        "opcode": tasks[item.task_id].instruction.opcode.value,
+        "observation_id": None,
+        "observation_kind": None,
+        "logical_op_ids": list(tasks[item.task_id].provenance.logical_op_ids),
+        "noise_target_id": item.target_id,
+        "noise_detail": item.detail,
+    } for item in result.noise_report.events)
+    events.sort(key=lambda item: (item["time_ns"], item["event_id"]))
     snapshots = [{
         "time_ns": item.captured_at_ns,
         "block_locations": dict(item.block_locations),
@@ -164,11 +177,15 @@ def build_visualization_run(
             "graph_id": graph.graph_id,
             "schedule_id": schedule.schedule_id,
             "machine_config_id": target.machine.machine_id,
+            "noise_config_id": result.noise_report.config.config_id,
+            "noise_seed": result.noise_report.seed,
+            "noise_parameter_source": result.noise_report.config.parameter_source,
             "makespan_ns": schedule.makespan_ns,
             "metrics": {
                 "task_count": len(task_rows),
                 "event_count": len(events),
                 "observation_count": len(observations),
+                "noise_event_count": len(result.noise_report.events),
                 "total_wait_ns": sum(item["wait_ns"] for item in task_rows),
                 "max_parallel_tasks": _max_parallelism(task_rows),
                 "final_state_digest": result.trace.snapshots[-1].state_digest,

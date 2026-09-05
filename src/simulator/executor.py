@@ -15,7 +15,10 @@ from hardware.zones import NeutralAtomTarget
 from scheduler.resources import CapacityCalendar
 from scheduler.task import ScheduledTask, TimedSchedule
 from simulator.events import ExecutionEvent, ExecutionTrace, MachineSnapshot, TraceEventKind
-from simulator.noise import LossModel, NoLossModel
+from simulator.noise import (
+    LossModel, NoiseEvent, NoiseEventKind, NoiseModel, NoiseReport,
+    NoNoiseModel, PauliFaultKind,
+)
 
 
 class StateBackend(Protocol):
@@ -86,16 +89,21 @@ class ExecutionResult:
     final_state: MachineState
     trace: ExecutionTrace
     observations: ObservationBatch
+    noise_report: NoiseReport
 
 
 class DigitalTwinExecutor:
     def __init__(
         self, target: NeutralAtomTarget, backend: StateBackend | None = None,
-        loss_model: LossModel | None = None,
+        loss_model: LossModel | None = None, noise_model: NoiseModel | None = None,
     ) -> None:
+        if loss_model is not None and noise_model is not None:
+            raise ContractValidationError("provide either loss_model or noise_model, not both")
         self.target = target
         self.backend = backend or DeterministicIdealBackend()
-        self.loss_model = loss_model or NoLossModel()
+        self.noise_model = noise_model or loss_model or NoNoiseModel()
+        self._noise_events: list[NoiseEvent] = []
+        self._parallel_rydberg_neighbors: dict[str, int] = {}
 
     def execute(
         self, run_id: str, graph: PhysicalTaskGraph, schedule: TimedSchedule,
@@ -109,6 +117,19 @@ class DigitalTwinExecutor:
         tasks = {task.task_id: task for task in graph.tasks}
         entries = {entry.task_id: entry for entry in schedule.entries}
         self._validate_schedule(graph, schedule, state, completed_task_ids)
+        self._noise_events = []
+        rydberg_entries = [
+            entry for entry in schedule.entries
+            if tasks[entry.task_id].instruction.opcode is PhysicalOpcode.APPLY_2Q_RYDBERG_GATE
+        ]
+        self._parallel_rydberg_neighbors = {
+            entry.task_id: sum(
+                other.task_id != entry.task_id
+                and entry.start_ns < other.end_ns and other.start_ns < entry.end_ns
+                for other in rydberg_entries
+            )
+            for entry in rydberg_entries
+        }
         events: list[ExecutionEvent] = []
         snapshots: list[MachineSnapshot] = [self._snapshot("snapshot-0000", state)]
         observations: list[Observation] = []
@@ -121,10 +142,17 @@ class DigitalTwinExecutor:
             state.now_ns = occurred_at
             task = tasks[entry.task_id]
             if is_start:
-                for injection in self.loss_model.losses_at_task_start(task.task_id):
-                    if injection.atom_id not in self._subject_atoms(task, state):
+                subjects = tuple(sorted(self._subject_atoms(task, state)))
+                for injection in self.noise_model.losses_at_task_start(
+                    task.task_id, task.instruction.opcode.value, subjects,
+                ):
+                    if injection.atom_id not in subjects:
                         raise ContractValidationError("loss injection atom must be a subject of its trigger task")
                     state.mark_atom_lost(injection.atom_id, detected=False)
+                    self._noise_events.append(NoiseEvent(
+                        f"noise-{injection.injection_id}", NoiseEventKind.ATOM_LOSS,
+                        occurred_at, task.task_id, injection.atom_id, "atom-removed-before-task",
+                    ))
                 self._start_task(task, entry, state)
                 state.validate(self.target)
                 kind = TraceEventKind.TASK_STARTED
@@ -143,9 +171,16 @@ class DigitalTwinExecutor:
                     occurred_at, task, entry, snapshot.state_digest, observation.event_id,
                 ))
         ended_at = max((entry.end_ns for entry in schedule.entries), default=state.now_ns)
-        trace = ExecutionTrace(run_id, schedule.schedule_id, graph.graph_id, started_at, ended_at, tuple(events), tuple(snapshots))
+        trace = ExecutionTrace(
+            run_id, schedule.schedule_id, graph.graph_id, started_at, ended_at,
+            tuple(events), tuple(snapshots), self.noise_model.config.config_id,
+            self.noise_model.seed,
+        )
         batch = ObservationBatch(run_id, f"observations-{run_id}", ended_at, tuple(observations))
-        return ExecutionResult(state, trace, batch)
+        report = NoiseReport(
+            self.noise_model.config, self.noise_model.seed, tuple(self._noise_events),
+        )
+        return ExecutionResult(state, trace, batch, report)
 
     def _validate_schedule(
         self, graph: PhysicalTaskGraph, schedule: TimedSchedule, state: MachineState,
@@ -293,20 +328,30 @@ class DigitalTwinExecutor:
             state.aligned_pairs.update(tuple(pair) for pair in parameters["pairs"])
         elif opcode is PhysicalOpcode.APPLY_1Q_PULSE:
             for atom in self._present_atoms(task.instruction.operands, state):
+                if parameters["operation"] == "hadamard":
+                    atom.pauli_x_error, atom.pauli_z_error = atom.pauli_z_error, atom.pauli_x_error
                 self.backend.apply_1q(atom, parameters["operation"])
+            self._apply_control_noise(task, entry, state)
         elif opcode is PhysicalOpcode.APPLY_2Q_RYDBERG_GATE:
             for left, right in parameters["pairs"]:
                 if (left, right) not in state.aligned_pairs:
                     raise ContractValidationError("Rydberg pair is not aligned")
+                left_x = state.atoms[left].pauli_x_error
+                right_x = state.atoms[right].pauli_x_error
                 self.backend.apply_2q(state.atoms[left], state.atoms[right], parameters["gate"])
+                state.atoms[left].pauli_z_error ^= right_x
+                state.atoms[right].pauli_z_error ^= left_x
+            self._apply_control_noise(task, entry, state)
         elif opcode is PhysicalOpcode.RESET_ATOMS:
             for atom in self._present_atoms(task.instruction.operands, state):
                 self.backend.reset(atom, parameters["state"])
+                atom.pauli_x_error = atom.pauli_z_error = False
                 if parameters["purpose"] == "ancilla-loss-replacement" and atom.site_id is not None:
                     site = state.sites[atom.site_id]
                     if site.role is not AtomRole.ANCILLA or not site.known_erasure:
                         raise ContractValidationError("ancilla replacement reset requires a known ancilla erasure")
                     state.resolve_erasure(site.site_id)
+            self._apply_control_noise(task, entry, state)
         elif opcode is PhysicalOpcode.LOAD_RESERVOIR_ATOM:
             atom_id = task.instruction.operands[0]
             state.atoms[atom_id] = AtomState(atom_id, AtomRole.RESERVOIR, self.target.bindings.reservoir_zone_id)
@@ -323,6 +368,7 @@ class DigitalTwinExecutor:
             atom.zone_id = block.zone_id
             atom.trajectory_id = None
             atom.qubit_label = QubitLabel.ZERO
+            atom.pauli_x_error = atom.pauli_z_error = False
         elif opcode is PhysicalOpcode.IMAGE_ATOMS:
             emitted: list[Observation] = []
             for atom_id in task.instruction.operands:
@@ -356,6 +402,12 @@ class DigitalTwinExecutor:
 
     def _measurement_observation(self, task: PhysicalTask, state: MachineState, run_id: str, index: int, atom: AtomState, basis: str) -> Observation:
         value = self.backend.measure(atom, basis)
+        value ^= int(atom.pauli_x_error if basis == "z" else atom.pauli_z_error)
+        flip = self.noise_model.measurement_flip(task.task_id, atom.atom_id, state.now_ns)
+        if flip is not None:
+            value ^= 1
+            self._noise_events.append(flip)
+        atom.pauli_x_error = atom.pauli_z_error = False
         return Observation(f"obs-{run_id}-{index:04d}", ObservationKind.MEASUREMENT, state.now_ns, task.task_id, {"atom_id": atom.atom_id, "basis": basis, "value": value})
 
     def _syndrome_observation(
@@ -368,9 +420,20 @@ class DigitalTwinExecutor:
         for check_id, check in parameters["checks"].items():
             ancilla = by_id[check["ancilla_atom_id"]]
             self.backend.measure(ancilla, parameters["basis"])
+            ancilla.pauli_x_error = ancilla.pauli_z_error = False
             bit = self.backend.syndrome_bit(
                 check_id, check["basis"], tuple(check["data_atom_ids"]),
             )
+            for atom_id in check["data_atom_ids"]:
+                atom = state.atoms[atom_id]
+                bit ^= int(
+                    atom.pauli_x_error if check["basis"] == "Z"
+                    else atom.pauli_z_error
+                )
+            flip = self.noise_model.syndrome_flip(task.task_id, check_id, state.now_ns)
+            if flip is not None:
+                bit ^= 1
+                self._noise_events.append(flip)
             if bit not in (0, 1) or isinstance(bit, bool):
                 raise ContractValidationError("state backend syndrome bit must be integer zero or one")
             bits[check_id] = bit
@@ -386,6 +449,23 @@ class DigitalTwinExecutor:
             },
         )
 
+    def _apply_control_noise(
+        self, task: PhysicalTask, entry: ScheduledTask, state: MachineState,
+    ) -> None:
+        atoms = tuple(dict.fromkeys(
+            atom_id for atom_id in task.instruction.operands
+            if atom_id in state.atoms and state.atoms[atom_id].present
+        ))
+        faults = self.noise_model.pauli_faults(
+            task.task_id, task.instruction.opcode.value, atoms, state.now_ns,
+            self._parallel_rydberg_neighbors.get(task.task_id, 0),
+        )
+        for fault in faults:
+            atom = state.atoms[fault.atom_id]
+            atom.pauli_x_error ^= fault.pauli in {PauliFaultKind.X, PauliFaultKind.Y}
+            atom.pauli_z_error ^= fault.pauli in {PauliFaultKind.Z, PauliFaultKind.Y}
+            self._noise_events.append(fault.event)
+
     def _snapshot(self, snapshot_id: str, state: MachineState) -> MachineSnapshot:
         occupancy = state.zone_occupancy(self.target)
         blocks = {key: value.zone_id or f"in_transit:{value.trajectory_id}" for key, value in sorted(state.blocks.items())}
@@ -400,6 +480,11 @@ class DigitalTwinExecutor:
             "time": state.now_ns, "zones": occupancy, "blocks": blocks, "atoms": atom_locations, "labels": labels,
             "present": sum(atom.present for atom in state.atoms.values()),
             "erasures": sum(site.known_erasure for site in state.sites.values()),
+            "pauli_errors": {
+                key: (value.pauli_x_error, value.pauli_z_error)
+                for key, value in sorted(state.atoms.items())
+                if value.pauli_x_error or value.pauli_z_error
+            },
             "aligned": sorted(state.aligned_pairs),
             "sites": {key: (value.atom_id, value.known_erasure) for key, value in sorted(state.sites.items())},
         }

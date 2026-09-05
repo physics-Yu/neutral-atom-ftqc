@@ -6,11 +6,14 @@ import pytest
 
 from compiler.lowering.neutral_atom import lower_to_neutral_atom_tasks
 from contracts import ContractValidationError
-from examples.ghz_surface_code import build_ghz_qec_protocol, build_profile_target
+from examples.ghz_surface_code import (
+    build_ghz_noise_graph, build_ghz_qec_protocol, build_profile_target,
+)
 from hardware.hardware_state import MachineState
 from scheduler.resst import schedule_physical_tasks
 from scheduler.task import ScheduleRequest
 from simulator.executor import DigitalTwinExecutor
+from simulator.noise import NoiseConfig, SeededNoiseModel
 from visualization import build_visualization_bundle, build_visualization_run, write_visualization_artifact
 
 
@@ -71,3 +74,22 @@ def test_output_requires_html_suffix(tmp_path) -> None:
     bundle = build_visualization_bundle("GHZ", build_visualization_run("Low", *values))
     with pytest.raises(ContractValidationError, match=r"\.html"):
         write_visualization_artifact(bundle, tmp_path / "ghz.txt")
+
+
+def test_noise_events_and_seed_are_projected_into_timeline() -> None:
+    target, _, graph, state = build_ghz_noise_graph(3)
+    schedule = schedule_physical_tasks(ScheduleRequest("noise-visual", graph, target.machine))
+    config = NoiseConfig(
+        "visual-noise", "synthetic visualization test",
+        measurement_flip_probability=1.0,
+    )
+    result = DigitalTwinExecutor(
+        target, noise_model=SeededNoiseModel(config, 42),
+    ).execute("noise-visual", graph, schedule, state)
+    run = build_visualization_run("Noisy", target, graph, schedule, result).to_dict()
+
+    assert run["noise_config_id"] == "visual-noise"
+    assert run["noise_seed"] == 42
+    assert run["metrics"]["noise_event_count"] == 4 * 3**2
+    assert any(item["kind"] == "noise_measurement_flip" for item in run["events"])
+

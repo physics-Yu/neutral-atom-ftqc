@@ -84,12 +84,17 @@ class ExecutionTrace:
     ended_at_ns: int
     events: tuple[ExecutionEvent, ...]
     snapshots: tuple[MachineSnapshot, ...]
+    noise_config_id: str = "ideal-noise-v0.1"
+    noise_seed: int = 0
     schema_version: str = SCHEMA_VERSION
 
     def __post_init__(self) -> None:
         require_schema(self.schema_version)
         for value, name in ((self.run_id, "trace run ID"), (self.schedule_id, "trace schedule ID"), (self.graph_id, "trace graph ID")):
             require_id(value, name)
+        require_id(self.noise_config_id, "trace noise config ID")
+        if not isinstance(self.noise_seed, int) or isinstance(self.noise_seed, bool) or self.noise_seed < 0:
+            raise ContractValidationError("trace noise seed must be non-negative")
         if self.started_at_ns < 0 or self.ended_at_ns < self.started_at_ns:
             raise ContractValidationError("trace time range is invalid")
         if any(left.occurred_at_ns > right.occurred_at_ns for left, right in zip(self.events, self.events[1:])):
@@ -130,5 +135,8 @@ class ExecutionTrace:
                 known_erasures=item["known_erasures"], reservoir_inventory=item["reservoir_inventory"],
                 aligned_pair_count=item["aligned_pair_count"], state_digest=item["state_digest"],
             ) for item in data["snapshots"]),
+            noise_config_id=data.get("noise_config_id", "ideal-noise-v0.1"),
+            noise_seed=data.get("noise_seed", 0),
             schema_version=data.get("schema_version", SCHEMA_VERSION),
         )
+

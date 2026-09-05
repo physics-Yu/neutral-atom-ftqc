@@ -128,6 +128,8 @@ class MachineState:
         atom.zone_id = None
         atom.trajectory_id = None
         atom.qubit_label = QubitLabel.LOST
+        atom.pauli_x_error = False
+        atom.pauli_z_error = False
 
     def register_detected_erasure(self, atom_id: str) -> SiteState:
         """Promote an absent atom to a decoder-visible known erasure."""
