@@ -103,15 +103,53 @@ class MachineState:
                 result[atom.zone_id] += 1
         return result
 
-    def mark_atom_lost(self, atom_id: str) -> None:
+    def add_reservoir_atom(self, atom_id: str, target: NeutralAtomTarget) -> None:
+        """Seed one finite spare without assigning it to an encoded site."""
+
+        require_id(atom_id, "reservoir atom ID")
+        if atom_id in self.atoms:
+            raise ContractValidationError("reservoir atom ID already exists")
+        self.atoms[atom_id] = AtomState(
+            atom_id, AtomRole.RESERVOIR, target.bindings.reservoir_zone_id,
+        )
+        self.validate(target)
+
+    def mark_atom_lost(self, atom_id: str, *, detected: bool = True) -> None:
+        """Remove a physical atom; detection may occur at a later image task."""
+
         atom = self.atoms.get(atom_id)
         if atom is None or not atom.present or atom.site_id is None:
             raise ContractValidationError("only a present, placed atom can be marked lost")
         site = self.sites[atom.site_id]
         site.atom_id = None
-        site.known_erasure = True
+        site.known_erasure = detected
         atom.present = False
-        atom.known_erasure = True
+        atom.known_erasure = detected
         atom.zone_id = None
         atom.trajectory_id = None
         atom.qubit_label = QubitLabel.LOST
+
+    def register_detected_erasure(self, atom_id: str) -> SiteState:
+        """Promote an absent atom to a decoder-visible known erasure."""
+
+        atom = self.atoms.get(atom_id)
+        if atom is None or atom.present or atom.site_id is None:
+            raise ContractValidationError("only an absent placed atom can be registered as an erasure")
+        site = self.sites[atom.site_id]
+        site.known_erasure = True
+        atom.known_erasure = True
+        return site
+
+    def resolve_erasure(self, site_id: str) -> None:
+        """Clear erasure metadata only after an explicit recovery decision."""
+
+        site = self.sites.get(site_id)
+        if site is None or not site.known_erasure or site.atom_id is None:
+            raise ContractValidationError("resolved erasure must be an occupied known-erasure site")
+        atom = self.atoms[site.atom_id]
+        if not atom.present:
+            raise ContractValidationError("resolved erasure replacement must be present")
+        site.known_erasure = False
+        atom.known_erasure = False
+        atom.role = site.role
+

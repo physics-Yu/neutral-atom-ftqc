@@ -70,7 +70,7 @@ def expand_to_qec_protocol(
         else:
             kind, strategy, pairings = QECOpKind.QEC_BARRIER, "dependency_barrier", ()
         syndrome_interactions = (
-            _syndrome_interactions(layout_by_block[block_ids[0]])
+            syndrome_interactions_for_layout(layout_by_block[block_ids[0]])
             if kind is QECOpKind.SYNDROME_ROUND else ()
         )
         operations.append(QECOp(
@@ -113,7 +113,7 @@ def _transversal_pairings(
     )
 
 
-def _syndrome_interactions(layout: SurfaceCodeLayout) -> tuple[SyndromeInteraction, ...]:
+def syndrome_interactions_for_layout(layout: SurfaceCodeLayout) -> tuple[SyndromeInteraction, ...]:
     """Copy checks into eight collision-free direction/basis layers."""
 
     sites = {site.site_id: site for site in layout.sites}

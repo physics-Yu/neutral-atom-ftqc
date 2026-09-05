@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 
-from examples.ghz_surface_code import build_ghz_visualization_run
+from examples.ghz_surface_code import (
+    build_ghz_loss_visualization_run, build_ghz_visualization_run,
+)
 from visualization import build_visualization_bundle, write_visualization_artifact
 
 
@@ -44,4 +46,21 @@ def test_visualization_serializes_nested_syndrome_observations(tmp_path) -> None
     assert len(syndromes) == 4
     assert all(len(item["payload"]["bits"]) == 8 for item in syndromes)
     assert data["metrics"]["task_count"] == 145
+
+
+def test_m7_loss_visualization_contains_dynamic_recovery_story(tmp_path) -> None:
+    run = build_ghz_loss_visualization_run(3)
+    html_path, json_path = write_visualization_artifact(
+        build_visualization_bundle("M7 loss recovery", run), tmp_path / "m7.html",
+    )
+    data = json.loads(json_path.read_text(encoding="utf-8"))["runs"][0]
+    kinds = [item["kind"] for item in data["events"]]
+    observation_kinds = [item.get("observation_kind") for item in data["events"]]
+
+    assert html_path.stat().st_size > 10_000
+    assert "atom_loss" in observation_kinds
+    assert kinds.index("erasure_registered") < kinds.index("recovery_tasks_inserted")
+    assert kinds.index("recovery_tasks_inserted") < kinds.index("decoder_completed")
+    assert kinds.index("decoder_completed") < kinds.index("erasure_resolved")
+    assert data["snapshots"][-1]["known_erasures"] == 0
 

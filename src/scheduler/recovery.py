@@ -1,4 +1,15 @@
-"""Runtime recovery-task generation hooks.
+"""Compatibility imports for the M7 runtime-owned mutation boundary.
 
-This module will later translate loss/recovery decisions into new physical tasks that can be injected into the scheduler.
+Recovery policy lives in :mod:`loss`; DAG mutation lives in :mod:`runtime`.
+The scheduler remains a consumer of generic physical graphs.
 """
+
+from runtime.mutation import (
+    DagMutation, RescheduleResult, apply_dag_mutation, reschedule_after_mutation,
+)
+
+__all__ = [
+    "DagMutation", "RescheduleResult", "apply_dag_mutation",
+    "reschedule_after_mutation",
+]
+

@@ -27,7 +27,9 @@ A syndrome observation identifies its block, logical qubit, layout, round index,
 - `clean` for no detection events;
 - `corrected` only when the signature uniquely matches one data-site X, Y, or Z error;
 - `ambiguous` rather than guessing when zero or multiple candidates match;
-- `needs_recovery` for known erasures, which are deferred to M7.
+- `needs_recovery` for known erasures when using the M6-only decoder.
+
+M7 adds `IdealErasureAwareDecoder`. After an explicit physical refill and a new syndrome round, it reports `recovered` for a correctable known-erasure set and `uncorrectable` when the erasure count reaches the code distance. This is a deterministic control-flow oracle, not a threshold-quality decoder.
 
 The decoder latency is a positive injected integer in nanoseconds. The reference value is 25,000 ns and is a software-model parameter, not a measured decoder benchmark.
 
@@ -35,7 +37,7 @@ The decoder latency is a positive injected integer in nanoseconds. The reference
 
 `RuntimeController` consumes only `ObservationBatch`, layouts, the current logical frame, and the sparse physical frame. Each decoder result carries a `PauliFrameDelta`. Physical corrections toggle sparse site-level X/Z flags by XOR; logical X/Z flags remain a separate frame. No physical correction gate is emitted merely because a frame changes.
 
-For every decoded block the controller publishes a stable `decoder-ready:*` condition whose availability equals decoder completion. A generated Physical ISA `emit_sync` continuation contains those `ConditionRef` values and an `earliest_start_ns` equal to the latest completion. With messages absent, RESST returns `condition_blocked`; with them present, the continuation is schedulable no earlier than the modeled release. Full live DAG mutation and preservation of active/future calendar intervals are M7 responsibilities.
+For every decoded block the controller publishes a stable `decoder-ready:*` condition whose availability equals decoder completion. A generated Physical ISA `emit_sync` continuation contains those `ConditionRef` values and an `earliest_start_ns` equal to the latest completion. M7 additionally permits erasure resolution only for a `recovered` decoder result; refill and reset alone cannot clear a data erasure.
 
 ## Ideal-backend boundary
 

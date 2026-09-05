@@ -21,9 +21,9 @@ The lowest executable layer contains only operations that an experimental platfo
 
 ## Current status
 
-M0 through M6 are complete. The repository includes schema-v0.1 boundary contracts, a distance-parameterized rotated planar surface-code layout, immutable logical and physical Pauli frames, a QEC protocol IR, validated Physical ISA semantics, finite zone/resource bindings, conflict-grouped transport trajectories, deterministic physical lowering, a non-preemptive RESST-style scheduler, a replayable idealized digital twin, a standalone synchronized viewer, explicit stabilizer-extraction rounds, a reference single-error decoder, and decoder-conditioned runtime feedback. Contract and model tests cover both `d=3` and `d=5`.
+M0 through M7 are complete. In addition to compilation, physical scheduling, digital-twin execution, visualization, syndrome extraction, and decoder feedback, the repository now supports deterministic atom-loss injection, explicit detection, finite reservoir allocation, physical refill, erasure-aware decoding, versioned physical-DAG mutation, and partial rescheduling. Contract and model tests cover both `d=3` and `d=5`.
 
-The next implementation milestone is **M7: deterministic atom loss, refill, recovery, and partial rescheduling**.
+The next implementation milestone is **M8: configurable stochastic noise, higher-fidelity physics, and scaling validation**.
 
 Run the complete measured baseline with `python examples/ghz_surface_code.py --distance 3 --execute --measure` after setting `PYTHONPATH=src;.` on Windows.
 
@@ -41,6 +41,13 @@ Run one explicit ideal syndrome/decoder cycle with:
 ```powershell
 $env:PYTHONPATH = "src;."
 python examples/ghz_surface_code.py --distance 3 --syndrome-rounds 1 --decode
+```
+
+Run and visualize the deterministic M7 recoverable-loss scenario with:
+
+```powershell
+$env:PYTHONPATH = "src;."
+python examples/ghz_surface_code.py --distance 3 --inject-loss --visualize artifacts/ghz-loss-d3.html
 ```
 
 See `AGENTS.md` for project-wide constraints and `docs/architecture_and_implementation_plan.md` for the milestone plan.

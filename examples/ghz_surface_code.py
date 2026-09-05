@@ -4,33 +4,54 @@ from __future__ import annotations
 
 import argparse
 import json
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 
-from compiler.compiler import expand_to_qec_protocol
+from compiler.compiler import expand_to_qec_protocol, syndrome_interactions_for_layout
 from compiler.logical_ir import (
     CodeFamily, LogicalCircuitIR, LogicalInitialState, LogicalOp, LogicalOpKind,
     LogicalQubitDecl,
 )
 from compiler.lowering.neutral_atom import lower_to_neutral_atom_tasks
-from compiler.physical_ir import PhysicalTaskGraph
-from compiler.qec_ir import QECProtocolIR
-from decoder.decoder import IdealSingleErrorDecoder
+from compiler.physical_ir import (
+    PhysicalInstruction, PhysicalOpcode, PhysicalTask, PhysicalTaskGraph,
+    ResourceDemand, ResourceMode, ZoneDemand,
+)
+from compiler.qec_ir import QECOp, QECOpKind, QECProtocolIR
+from decoder.decoder import IdealErasureAwareDecoder, IdealSingleErrorDecoder
 from hardware.zones import NeutralAtomTarget, build_reference_target
 from hardware.hardware_state import MachineState
+from loss import (
+    LossManager, RecoveryPlan, build_refill_tasks, retarget_replaced_atoms,
+)
 from qec.pauli_frame import PauliFrame
 from qec.surface_code import SurfaceCodeSpec, generate_surface_code_layout
 from scheduler.resst import schedule_physical_tasks
 from scheduler.task import ScheduleRequest, TimedSchedule
 from simulator.executor import DigitalTwinExecutor, ExecutionResult
 from runtime.controller import RuntimeController, RuntimeCycleResult
+from runtime.mutation import DagMutation, RescheduleResult, reschedule_after_mutation
+from simulator.noise import DeterministicLossModel, LossInjection
 from visualization import (
     VisualizationRun, build_visualization_bundle, build_visualization_run,
-    write_visualization_artifact,
+    combine_visualization_runs, write_visualization_artifact,
 )
 
 
 CONFIG_DIR = Path(__file__).with_name("config")
+
+
+@dataclass(frozen=True, slots=True)
+class LossRecoveryRun:
+    target: NeutralAtomTarget
+    detection_graph: PhysicalTaskGraph
+    detection_schedule: TimedSchedule
+    detection: ExecutionResult
+    plan: RecoveryPlan
+    reschedule: RescheduleResult
+    recovery: ExecutionResult
+    decoder_cycle: RuntimeCycleResult
+    resolved_site_ids: tuple[str, ...]
 
 
 def build_profile_target(profile: str = "low") -> NeutralAtomTarget:
@@ -178,6 +199,138 @@ def run_ghz_qec_cycle(
     return result, cycle, release
 
 
+def run_ghz_loss_recovery(
+    distance: int = 3, profile: str = "low", *, reservoir_spares: int = 1,
+) -> LossRecoveryRun:
+    """Run the deterministic M7 data-loss/refill/QEC/reschedule scenario."""
+
+    if reservoir_spares < 1:
+        raise ValueError("the recoverable demo requires at least one reservoir spare")
+    target = build_profile_target(profile)
+    protocol = build_ghz_qec_protocol(distance, include_measurements=False, syndrome_rounds=0)
+    base = lower_to_neutral_atom_tasks(protocol, target)
+    lost_atom_id = "block-L2/data-r1-c1"
+    if lost_atom_id not in {f"{block.block_id}/{site}" for block in protocol.blocks for site in block.data_site_ids}:
+        raise ValueError("configured deterministic loss site is absent from this layout")
+    depended_on = {parent for task in base.tasks for parent in task.predecessors}
+    terminals = tuple(task.task_id for task in base.tasks if task.task_id not in depended_on)
+    image_id = "m7-detect-loss-L2"
+    detection_task = PhysicalTask(
+        image_id,
+        PhysicalInstruction(PhysicalOpcode.IMAGE_ATOMS, (lost_atom_id,), {
+            "profile": "mid-circuit-loss-detection-v0.1",
+        }),
+        predecessors=terminals,
+        resource_demands=(ResourceDemand(target.bindings.imaging_resource_id, mode=ResourceMode.SHARED),),
+        zone_ids=(target.bindings.storage_zone_id,),
+        zone_demands=(ZoneDemand(target.bindings.storage_zone_id, 1),),
+    )
+    graph = PhysicalTaskGraph(base.graph_id, base.revision + 1, base.tasks + (detection_task,))
+    initial = MachineState.from_protocol(protocol, target)
+    for index in range(reservoir_spares):
+        initial.add_reservoir_atom(f"reservoir-spare-{index}", target)
+    schedule = schedule_physical_tasks(ScheduleRequest("m7-detection", graph, target.machine))
+    detection = DigitalTwinExecutor(
+        target, loss_model=DeterministicLossModel((
+            LossInjection("m7-loss-L2-center", image_id, lost_atom_id),
+        )),
+    ).execute("ghz-loss-detection", graph, schedule, initial)
+
+    manager = LossManager(target)
+    plans = manager.process_observations(detection.observations, detection.final_state)
+    if len(plans) != 1 or plans[0].allocation is None:
+        raise RuntimeError("deterministic recoverable scenario did not allocate one spare")
+    plan = plans[0]
+    refill = build_refill_tasks(plan, target)
+
+    layout = generate_surface_code_layout(SurfaceCodeSpec(distance))
+    block = next(item for item in protocol.blocks if item.block_id == plan.request.block_id)
+    recovery_op = QECOp(
+        "qec-m7-recovery-syndrome-L2", QECOpKind.SYNDROME_ROUND,
+        (block.block_id,), (), "m7-recovery-L2",
+        "eight_layer_erasure_recovery_v0.1", rounds=1,
+        syndrome_interactions=syndrome_interactions_for_layout(layout),
+    )
+    recovery_protocol = QECProtocolIR(
+        f"qec-m7-recovery-d{distance}", protocol.source_circuit_id,
+        (block,), (recovery_op,),
+    )
+    syndrome_graph = lower_to_neutral_atom_tasks(recovery_protocol, target)
+    verify_id = refill[-1].task_id
+    syndrome_tasks = tuple(
+        replace(task, predecessors=(verify_id,)) if not task.predecessors else task
+        for task in syndrome_graph.tasks
+    )
+    syndrome_tasks = retarget_replaced_atoms(
+        syndrome_tasks, {plan.request.atom_id: plan.allocation.replacement_atom_id},
+    )
+    mutation = DagMutation(
+        "m7-loss-recovery", graph.graph_id, graph.revision,
+        detection.trace.ended_at_ns,
+        tuple(task.task_id for task in graph.tasks),
+        inserted_tasks=refill + syndrome_tasks,
+    )
+    revised = reschedule_after_mutation(graph, mutation, target.machine)
+    recovery = DigitalTwinExecutor(target).execute(
+        "ghz-loss-recovery", revised.graph, revised.schedule,
+        detection.final_state, completed_task_ids=mutation.completed_task_ids,
+    )
+    controller = RuntimeController(IdealErasureAwareDecoder())
+    cycle = controller.process_syndrome_batch(
+        recovery.observations, {block.block_id: layout},
+        PauliFrame.identity(tuple(item.logical_qubit_id for item in protocol.blocks)),
+        known_erasures_by_block={block.block_id: (plan.request.local_site_id,)},
+    )
+    resolved = controller.finalize_recovered_erasures(recovery.final_state, cycle)
+    recovery.final_state.validate(target)
+    return LossRecoveryRun(
+        target, graph, schedule, detection, plan, revised, recovery, cycle, resolved,
+    )
+
+
+def build_ghz_loss_visualization_run(
+    distance: int = 3, profile: str = "low",
+) -> VisualizationRun:
+    run = run_ghz_loss_recovery(distance, profile)
+    detection = build_visualization_run(
+        "Loss detection", run.target, run.detection_graph,
+        run.detection_schedule, run.detection,
+    )
+    recovery = build_visualization_run(
+        "Dynamic recovery", run.target, run.reschedule.graph,
+        run.reschedule.schedule, run.recovery,
+    )
+    detected_at = run.plan.request.detected_at_ns
+    ready_at = run.decoder_cycle.ready_at_ns
+    resolved_at = run.recovery.final_state.now_ns
+    runtime_events = (
+        {"event_id": "runtime-01-loss-registered", "kind": "erasure_registered", "time_ns": detected_at},
+        {"event_id": "runtime-02-reservoir-allocated", "kind": "reservoir_allocated", "time_ns": detected_at},
+        {"event_id": "runtime-03-dag-mutated", "kind": "recovery_tasks_inserted", "time_ns": detected_at},
+        {"event_id": "runtime-04-decoder-completed", "kind": "decoder_completed", "time_ns": ready_at},
+        {"event_id": "runtime-05-erasure-resolved", "kind": "erasure_resolved", "time_ns": resolved_at},
+    )
+    state = run.recovery.final_state
+    terminal_snapshot = {
+        "time_ns": resolved_at,
+        "block_locations": {
+            block_id: block.zone_id or f"in_transit:{block.trajectory_id}"
+            for block_id, block in state.blocks.items()
+        },
+        "zone_occupancy": state.zone_occupancy(run.target),
+        "atoms_present": sum(atom.present for atom in state.atoms.values()),
+        "known_erasures": sum(site.known_erasure for site in state.sites.values()),
+        "aligned_pair_count": len(state.aligned_pairs),
+        "state_digest": f"runtime-resolved-{run.plan.request.loss_event_id}",
+    }
+    return combine_visualization_runs(
+        f"ghz-loss-recovery-d{distance}-{profile}",
+        f"Recoverable loss · {profile} resources · d={distance}",
+        detection, recovery, runtime_events=runtime_events,
+        terminal_snapshot=terminal_snapshot,
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--distance", type=int, default=3)
@@ -188,6 +341,7 @@ def main() -> None:
     parser.add_argument("--compare-resources", action="store_true", help="include low/high resource runs in the artifact")
     parser.add_argument("--syndrome-rounds", type=int, default=0, help="append this many explicit stabilizer-extraction rounds per block")
     parser.add_argument("--decode", action="store_true", help="decode syndrome observations and release a feedback barrier")
+    parser.add_argument("--inject-loss", action="store_true", help="run deterministic M7 data-loss recovery with one reservoir spare")
     args = parser.parse_args()
     if args.decode and args.syndrome_rounds <= 0:
         parser.error("--decode requires --syndrome-rounds >= 1")
@@ -212,11 +366,14 @@ def main() -> None:
             f"final state digest {result.trace.snapshots[-1].state_digest[:12]}."
         )
     if args.visualize:
-        profiles = ("low", "high") if args.compare_resources else (args.profile,)
-        runs = tuple(
-            build_ghz_visualization_run(args.distance, profile, args.syndrome_rounds)
-            for profile in profiles
-        )
+        if args.inject_loss:
+            runs = (build_ghz_loss_visualization_run(args.distance, args.profile),)
+        else:
+            profiles = ("low", "high") if args.compare_resources else (args.profile,)
+            runs = tuple(
+                build_ghz_visualization_run(args.distance, profile, args.syndrome_rounds)
+                for profile in profiles
+            )
         html_path, json_path = write_visualization_artifact(
             build_visualization_bundle(f"Four-block GHZ · distance {args.distance}", *runs),
             args.visualize,
@@ -228,6 +385,16 @@ def main() -> None:
         print(
             f"Decoded {len(cycle.feedbacks)} block syndromes ({statuses}); "
             f"feedback barrier starts at {release.entries[0].start_ns} ns after explicit decoder latency."
+        )
+    if args.inject_loss:
+        loss_run = run_ghz_loss_recovery(args.distance, args.profile)
+        feedback = loss_run.decoder_cycle.feedbacks[0]
+        print(
+            f"Recovered deterministic loss {loss_run.plan.request.atom_id} with "
+            f"{loss_run.plan.allocation.replacement_atom_id}; inserted "
+            f"{len(loss_run.reschedule.mutation.inserted_tasks)} physical tasks in graph revision "
+            f"{loss_run.reschedule.graph.revision}; decoder status "
+            f"{feedback.decoder_result.status.value} at {feedback.available_at_ns} ns."
         )
 
 

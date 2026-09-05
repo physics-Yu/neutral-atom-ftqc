@@ -39,7 +39,7 @@ The logical algorithm is intentionally small. The demo is intended to expose the
 - RESST resource conflicts;
 - zone occupancy;
 - machine-state evolution;
-- later: syndrome/QEC feedback and atom-loss recovery.
+- syndrome/QEC feedback and atom-loss recovery.
 
 ## M5 implementation status
 
@@ -78,9 +78,18 @@ python examples/ghz_surface_code.py --distance 3 --syndrome-rounds 1 --decode
 
 For `d=3`, one round on each of four blocks produces a 133-task physical graph and four syndrome observations. The ideal backend reports all checks as zero. The runtime invokes the decoder, composes its frame delta without applying correction pulses, publishes one ready condition per block, and schedules a physical feedback sync no earlier than both decoder completion and the completed execution trace.
 
+M7 adds a reproducible loss scenario:
+
+```powershell
+$env:PYTHONPATH = "src;."
+python examples/ghz_surface_code.py --distance 3 --inject-loss --visualize artifacts/ghz-loss-d3.html
+```
+
+The scenario loses `block-L2/data-r1-c1` at an explicit imaging boundary, records the known erasure, allocates `reservoir-spare-0`, inserts physical placement/reset/verification plus a complete syndrome round into graph revision 2, partially reschedules those 29 inserted tasks, invokes the erasure-aware decoder, and only then resolves the data erasure. The merged offline timeline includes loss registration, reservoir allocation, DAG mutation, decoder completion, and erasure resolution.
+
 ## First vertical slice
 
-The first executable GHZ milestone omits stochastic noise, atom loss, and full decoding. It proves that:
+The executable GHZ milestones still omit stochastic noise and full quantum-state fidelity. They prove that:
 
 ```text
 Logical GHZ circuit
@@ -96,6 +105,6 @@ The second logical layer is an explicit scheduling test: its two CNOTs are logic
 
 ## Later extension
 
-After the baseline works, insert explicit QEC rounds and then deterministic atom-loss scenarios with reservoir refill and dynamic rescheduling.
+M8 will add configurable stochastic noise and higher-fidelity loss/decoder physics without changing the deterministic M7 contracts.
 
 

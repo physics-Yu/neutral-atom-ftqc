@@ -16,8 +16,10 @@ from .syndrome import PauliError, SyndromeHistory, simulate_single_pauli_syndrom
 class DecoderStatus(StrEnum):
     CLEAN = "clean"
     CORRECTED = "corrected"
+    RECOVERED = "recovered"
     AMBIGUOUS = "ambiguous"
     NEEDS_RECOVERY = "needs_recovery"
+    UNCORRECTABLE = "uncorrectable"
 
 
 @dataclass(frozen=True, slots=True)
@@ -189,5 +191,68 @@ class IdealSingleErrorDecoder:
             PauliFrameDelta(logical_id, physical_corrections=(correction,)),
             started, started + self.latency_ns,
             {"active_checks": active, "matched_model": "single_data_pauli"},
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class IdealErasureAwareDecoder:
+    """M7 oracle for clean/single-Pauli data plus known data erasures.
+
+    It deliberately models decoder decisions rather than loss-channel physics.
+    A known-erasure set smaller than the code distance is accepted after an
+    explicit refill and syndrome round; matching single-site defects add a
+    sparse Pauli-frame correction.  Larger erasure sets are never guessed.
+    """
+
+    latency_ns: int = 35_000
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.latency_ns, int) or isinstance(self.latency_ns, bool) or self.latency_ns <= 0:
+            raise ContractValidationError("decoder latency_ns must be positive")
+
+    def decode(self, decoder_input: DecoderInput) -> DecoderResult:
+        if not decoder_input.known_erasures:
+            return IdealSingleErrorDecoder(self.latency_ns).decode(decoder_input)
+        latest = decoder_input.history.samples[-1]
+        started = latest.observed_at_ns
+        logical_id = latest.logical_qubit_id
+        erasures = tuple(sorted(decoder_input.known_erasures))
+        if len(erasures) >= decoder_input.layout.spec.distance:
+            return DecoderResult(
+                decoder_input.input_id, DecoderStatus.UNCORRECTABLE,
+                PauliFrameDelta(logical_id), started, started + self.latency_ns,
+                {"block_id": latest.block_id, "known_erasures": erasures, "reason": "erasure count reaches code distance"},
+            )
+        previous = decoder_input.history.samples[-2].bits if len(decoder_input.history.samples) > 1 else {}
+        active = tuple(sorted(
+            check_id for check_id, bit in latest.bits.items()
+            if bit ^ previous.get(check_id, 0)
+        ))
+        corrections: list[PhysicalCorrection] = []
+        if active:
+            for site_id in erasures:
+                for pauli in PauliError:
+                    signature = simulate_single_pauli_syndrome(
+                        decoder_input.layout, latest.block_id, logical_id, site_id, pauli,
+                    )
+                    if tuple(sorted(key for key, value in signature.bits.items() if value)) == active:
+                        corrections.append(PhysicalCorrection(latest.block_id, site_id, pauli))
+            if len(corrections) != 1:
+                return DecoderResult(
+                    decoder_input.input_id, DecoderStatus.AMBIGUOUS,
+                    PauliFrameDelta(logical_id), started, started + self.latency_ns,
+                    {
+                        "block_id": latest.block_id, "known_erasures": erasures, "active_checks": active,
+                        "candidate_count": len(corrections),
+                    },
+                )
+        return DecoderResult(
+            decoder_input.input_id, DecoderStatus.RECOVERED,
+            PauliFrameDelta(logical_id, physical_corrections=tuple(corrections)),
+            started, started + self.latency_ns,
+            {
+                "block_id": latest.block_id, "known_erasures": erasures, "recovered_erasure_sites": erasures,
+                "active_checks": active, "matched_model": "ideal_known_erasure_v0.1",
+            },
         )
 

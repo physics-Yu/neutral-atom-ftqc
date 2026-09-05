@@ -102,6 +102,9 @@ def build_visualization_run(
             "blocking_interval_ids": list(decision.blocking_interval_ids),
         })
 
+    observation_by_id = {
+        item.event_id: item for item in result.observations.observations
+    }
     events = [{
         "event_id": item.event_id,
         "kind": item.kind.value,
@@ -109,6 +112,10 @@ def build_visualization_run(
         "task_id": item.task_id,
         "opcode": item.opcode.value,
         "observation_id": item.observation_id,
+        "observation_kind": (
+            observation_by_id[item.observation_id].kind.value
+            if item.observation_id is not None else None
+        ),
         "logical_op_ids": list(item.provenance.logical_op_ids),
     } for item in result.trace.events]
     snapshots = [{
@@ -179,6 +186,60 @@ def build_visualization_run(
 
 def build_visualization_bundle(title: str, *runs: VisualizationRun) -> VisualizationBundle:
     return VisualizationBundle(title, tuple(runs))
+
+
+def combine_visualization_runs(
+    run_id: str, label: str, *segments: VisualizationRun,
+    runtime_events: tuple[Mapping[str, Any], ...] = (),
+    terminal_snapshot: Mapping[str, Any] | None = None,
+) -> VisualizationRun:
+    """Merge absolute-time execution segments into one M7 runtime timeline."""
+
+    require_id(run_id, "combined visualization run ID")
+    require_id(label, "combined visualization label")
+    if not segments:
+        raise ContractValidationError("combined visualization requires at least one segment")
+    machine_ids = {item.payload["machine_config_id"] for item in segments}
+    if len(machine_ids) != 1:
+        raise ContractValidationError("combined visualization segments require one machine")
+    tasks = [to_primitive(task) for segment in segments for task in segment.payload["tasks"]]
+    events = [to_primitive(event) for segment in segments for event in segment.payload["events"]]
+    for event in runtime_events:
+        values = dict(event)
+        for name in ("event_id", "kind", "time_ns"):
+            if name not in values:
+                raise ContractValidationError(f"runtime visualization event lacks {name}")
+        events.append({
+            "task_id": "runtime", "opcode": "emit_sync", "observation_id": None,
+            "observation_kind": None, "logical_op_ids": [], **values,
+        })
+    snapshots = [to_primitive(item) for segment in segments for item in segment.payload["snapshots"]]
+    if terminal_snapshot is not None:
+        snapshots.append(to_primitive(terminal_snapshot))
+    observations = [to_primitive(item) for segment in segments for item in segment.payload["observations"]]
+    events.sort(key=lambda item: (item["time_ns"], item["event_id"]))
+    snapshots.sort(key=lambda item: item["time_ns"])
+    makespan = max(
+        max((task["end_ns"] for task in tasks), default=0),
+        max((event["time_ns"] for event in events), default=0),
+    )
+    first = segments[0].payload
+    return VisualizationRun(run_id, label, {
+        "graph_id": "+".join(str(item.payload["graph_id"]) for item in segments),
+        "schedule_id": "+".join(str(item.payload["schedule_id"]) for item in segments),
+        "machine_config_id": next(iter(machine_ids)), "makespan_ns": makespan,
+        "metrics": {
+            "task_count": len(tasks), "event_count": len(events),
+            "observation_count": len(observations),
+            "total_wait_ns": sum(task["wait_ns"] for task in tasks),
+            "max_parallel_tasks": _max_parallelism(tasks),
+            "final_state_digest": snapshots[-1]["state_digest"],
+        },
+        "resources": to_primitive(first["resources"]),
+        "zones": to_primitive(first["zones"]),
+        "trajectories": to_primitive(first["trajectories"]), "tasks": tasks,
+        "events": events, "snapshots": snapshots, "observations": observations,
+    })
 
 
 def write_visualization_artifact(bundle: VisualizationBundle, output_path: str | Path) -> tuple[Path, Path]:

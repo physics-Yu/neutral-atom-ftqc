@@ -330,6 +330,8 @@ Logical GHZ
 
 ### M7：确定性 atom loss、补位与动态重调度
 
+状态：**已完成**。确定性 loss 注入、成像检测、有限 reservoir 分配、数据/ancilla 分支、物理补位、已完成历史不可变的 DAG revision、部分重调度、erasure-aware decoder 和合并时间线均已实现；假设与限制见 `docs/loss_recovery.md`。
+
 - 目标：实现已知 erasure、有限 reservoir、恢复任务注入和部分重调度。
 - 文件：新增 `src/loss/`、`src/runtime/`，调整 `src/scheduler/recovery.py` 为兼容/移除、`src/simulator/noise.py`、`src/hardware/`、可视化与测试。
 - 输入/输出：`AtomLossEvent` -> `RecoveryRequest` -> reservoir allocation -> `DagMutation` -> revised schedule -> QEC/decoder result。
@@ -412,7 +414,7 @@ Logical GHZ
 4. 再冻结 syndrome/decoder/loss 物理协议，执行 M6-M7。
 5. 有实验参数后再执行 M8，避免过早把占位物理量固化为事实。
 
-在上述决策完成之前，不应开始大规模实现。M0 至 M6 已完成；下一项最小且有用的工作是 **M7：确定性 atom loss、补位与动态重调度**。
+在上述决策完成之前，不应开始大规模实现。M0 至 M7 已完成；下一项最小且有用的工作是 **M8：噪声、物理保真度与扩展验证**。
 
 
 

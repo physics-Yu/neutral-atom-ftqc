@@ -3,8 +3,13 @@ from __future__ import annotations
 import pytest
 
 from contracts import ContractValidationError
-from decoder.decoder import DecoderInput, DecoderResult, DecoderStatus, IdealSingleErrorDecoder
-from decoder.syndrome import PauliError, SyndromeHistory, simulate_single_pauli_syndrome
+from decoder.decoder import (
+    DecoderInput, DecoderResult, DecoderStatus, IdealErasureAwareDecoder,
+    IdealSingleErrorDecoder,
+)
+from decoder.syndrome import (
+    PauliError, SyndromeHistory, SyndromeSample, simulate_single_pauli_syndrome,
+)
 from qec.pauli_frame import PauliFrame
 from qec.surface_code import SurfaceCodeSpec, generate_surface_code_layout
 
@@ -66,4 +71,32 @@ def test_decoder_rejects_incomplete_check_history() -> None:
     )
     with pytest.raises(ContractValidationError, match="every layout check"):
         DecoderInput("bad", decoder_input.layout, SyndromeHistory((incomplete,)), decoder_input.pauli_frame)
+
+
+def test_erasure_aware_decoder_recovers_one_known_clean_erasure() -> None:
+    layout = generate_surface_code_layout(SurfaceCodeSpec(3))
+    sample = SyndromeSample(
+        "block-L0", "L0", layout.layout_id, 0, 100,
+        {check.check_id: 0 for check in layout.stabilizers}, "syndrome-clean",
+    )
+    result = IdealErasureAwareDecoder().decode(DecoderInput(
+        "erasure", layout, SyndromeHistory((sample,)),
+        PauliFrame.identity(("L0",)), ("data-r1-c1",),
+    ))
+    assert result.status is DecoderStatus.RECOVERED
+    assert result.diagnostics["recovered_erasure_sites"] == ("data-r1-c1",)
+
+
+def test_erasure_aware_decoder_refuses_distance_many_erasures() -> None:
+    layout = generate_surface_code_layout(SurfaceCodeSpec(3))
+    sample = SyndromeSample(
+        "block-L0", "L0", layout.layout_id, 0, 100,
+        {check.check_id: 0 for check in layout.stabilizers}, "syndrome-many",
+    )
+    result = IdealErasureAwareDecoder().decode(DecoderInput(
+        "erasure", layout, SyndromeHistory((sample,)),
+        PauliFrame.identity(("L0",)),
+        ("data-r0-c0", "data-r0-c1", "data-r0-c2"),
+    ))
+    assert result.status is DecoderStatus.UNCORRECTABLE
 

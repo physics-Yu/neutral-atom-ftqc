@@ -44,7 +44,17 @@ The replaceable `StateBackend` boundary currently uses `DeterministicIdealBacken
 
 Syndrome extraction is expressed as reset, pulse, movement, alignment, CZ, measurement, and sync instructions; no QEC macro reaches the executor. Syndrome observations are grouped into per-block history windows and passed to an explicit decoder interface. Decoder output carries completion time, status, diagnostics, and a `PauliFrameDelta` rather than scheduler mutations.
 
-The runtime controller composes logical and sparse physical Pauli frames and publishes stable boolean message conditions. A follow-up physical sync task is both condition-gated and released no earlier than decoder completion. This establishes the feedback boundary without pretending that static M6 scheduling already supports live DAG mutation; preserving active intervals and rescheduling a changed graph remain M7 work.
+The runtime controller composes logical and sparse physical Pauli frames and publishes stable boolean message conditions. A follow-up physical sync task is both condition-gated and released no earlier than decoder completion.
+
+## M7 loss recovery and rescheduling
+
+`LossInjection` selects one atom and one physical trigger task. The digital twin removes that atom before the trigger starts but promotes the vacancy to a known erasure only when `IMAGE_ATOMS` detects absence. It emits both `atom_presence=false` and a typed `atom_loss` observation.
+
+`LossManager` validates the observation against machine state and reserves one present, unassigned reservoir atom. Reprocessing the same event returns the same plan; an empty finite pool returns `reservoir_exhausted`. `build_refill_tasks` emits only `PLACE_ATOM`, `RESET_ATOMS`, and verification imaging. For data sites the erasure flag survives all three operations. Ancilla replacement is explicitly allowed to resolve after reset.
+
+`DagMutation` names its base graph revision, observation time, predecessor-closed completed history, canceled future tasks, and inserted physical tasks. Applying it increments the revision without modifying completed task objects. RESST schedules only unfinished tasks at or after the observation time and may preserve active resource intervals. `DigitalTwinExecutor` accepts that partial schedule only when completed history is explicitly supplied.
+
+Data recovery appends a complete physical syndrome round and passes both syndrome history and the known local erasure to the erasure-aware decoder. Only a `recovered` result lets `RuntimeController` clear erasure metadata and restore the replacement atom's data role.
 
 ## Dynamic runtime target
 

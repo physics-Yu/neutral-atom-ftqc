@@ -32,4 +32,5 @@ The mutable `MachineState` is cloned at run start, so execution does not mutate 
 
 ## Ideal-backend boundary
 
-`StateBackend` isolates quantum-state semantics from machine execution. The M4 `DeterministicIdealBackend` is a symbolic Clifford-like label tracker with reproducible measurement branches. It is sufficient for state-transition and replay tests, but it is not a stabilizer/amplitude simulator, does not model Born statistics, and does not prove GHZ fidelity or fault tolerance. Syndrome extraction, decoding, Pauli-frame feedback, loss injection, and physical noise remain M6/M7+ work.
+`StateBackend` isolates quantum-state semantics from machine execution. The M4 `DeterministicIdealBackend` is a symbolic Clifford-like label tracker with reproducible measurement branches. It is sufficient for state-transition and replay tests, but it is not a stabilizer/amplitude simulator, does not model Born statistics, and does not prove GHZ fidelity or fault tolerance. M6/M7 add explicit syndrome, decoder, deterministic loss, and recovery control flow around this backend; stochastic physical noise remains M8 work.
+

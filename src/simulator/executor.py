@@ -15,6 +15,7 @@ from hardware.zones import NeutralAtomTarget
 from scheduler.resources import CapacityCalendar
 from scheduler.task import ScheduledTask, TimedSchedule
 from simulator.events import ExecutionEvent, ExecutionTrace, MachineSnapshot, TraceEventKind
+from simulator.noise import LossModel, NoLossModel
 
 
 class StateBackend(Protocol):
@@ -88,13 +89,17 @@ class ExecutionResult:
 
 
 class DigitalTwinExecutor:
-    def __init__(self, target: NeutralAtomTarget, backend: StateBackend | None = None) -> None:
+    def __init__(
+        self, target: NeutralAtomTarget, backend: StateBackend | None = None,
+        loss_model: LossModel | None = None,
+    ) -> None:
         self.target = target
         self.backend = backend or DeterministicIdealBackend()
+        self.loss_model = loss_model or NoLossModel()
 
     def execute(
         self, run_id: str, graph: PhysicalTaskGraph, schedule: TimedSchedule,
-        initial_state: MachineState,
+        initial_state: MachineState, *, completed_task_ids: tuple[str, ...] = (),
     ) -> ExecutionResult:
         require_id(run_id, "execution run ID")
         if not isinstance(graph, PhysicalTaskGraph) or not isinstance(schedule, TimedSchedule) or not isinstance(initial_state, MachineState):
@@ -103,7 +108,7 @@ class DigitalTwinExecutor:
         state.validate(self.target)
         tasks = {task.task_id: task for task in graph.tasks}
         entries = {entry.task_id: entry for entry in schedule.entries}
-        self._validate_schedule(graph, schedule, state)
+        self._validate_schedule(graph, schedule, state, completed_task_ids)
         events: list[ExecutionEvent] = []
         snapshots: list[MachineSnapshot] = [self._snapshot("snapshot-0000", state)]
         observations: list[Observation] = []
@@ -116,6 +121,10 @@ class DigitalTwinExecutor:
             state.now_ns = occurred_at
             task = tasks[entry.task_id]
             if is_start:
+                for injection in self.loss_model.losses_at_task_start(task.task_id):
+                    if injection.atom_id not in self._subject_atoms(task, state):
+                        raise ContractValidationError("loss injection atom must be a subject of its trigger task")
+                    state.mark_atom_lost(injection.atom_id, detected=False)
                 self._start_task(task, entry, state)
                 state.validate(self.target)
                 kind = TraceEventKind.TASK_STARTED
@@ -138,16 +147,23 @@ class DigitalTwinExecutor:
         batch = ObservationBatch(run_id, f"observations-{run_id}", ended_at, tuple(observations))
         return ExecutionResult(state, trace, batch)
 
-    def _validate_schedule(self, graph: PhysicalTaskGraph, schedule: TimedSchedule, state: MachineState) -> None:
+    def _validate_schedule(
+        self, graph: PhysicalTaskGraph, schedule: TimedSchedule, state: MachineState,
+        completed_task_ids: tuple[str, ...],
+    ) -> None:
         graph.validate_against_machine(self.target.machine)
         if schedule.graph_id != graph.graph_id or schedule.graph_revision != graph.revision:
             raise ContractValidationError("schedule does not target this physical graph revision")
-        if schedule.unscheduled:
-            raise ContractValidationError("M4 baseline execution requires a complete schedule")
         tasks = {task.task_id: task for task in graph.tasks}
         entries = {entry.task_id: entry for entry in schedule.entries}
-        if set(entries) != set(tasks):
-            raise ContractValidationError("schedule must cover every physical task exactly once")
+        completed = set(completed_task_ids)
+        if completed - tasks.keys():
+            raise ContractValidationError("completed execution task is absent from the graph")
+        if any(set(tasks[task_id].predecessors) - completed for task_id in completed):
+            raise ContractValidationError("completed execution tasks must be predecessor-closed")
+        expected = set(tasks) - completed
+        if schedule.unscheduled or set(entries) != expected:
+            raise ContractValidationError("schedule must cover every unfinished physical task exactly once")
         if len({entry.dispatch_order for entry in schedule.entries}) != len(schedule.entries):
             raise ContractValidationError("schedule dispatch orders must be unique")
         calendar = CapacityCalendar(self.target.machine)
@@ -159,7 +175,10 @@ class DigitalTwinExecutor:
                 raise ContractValidationError("scheduled assignments differ from physical task demands")
             if task.deadline_ns is not None and entry.end_ns > task.deadline_ns:
                 raise ContractValidationError("scheduled task misses its deadline")
-            if any(entries[parent].end_ns > entry.start_ns for parent in task.predecessors):
+            if any(
+                parent not in completed and entries[parent].end_ns > entry.start_ns
+                for parent in task.predecessors
+            ):
                 raise ContractValidationError("schedule violates a physical DAG dependency")
             blockers = calendar.conflicts(entry.start_ns, entry.end_ns, entry.resource_assignments, entry.zone_assignments)
             if blockers:
@@ -283,6 +302,11 @@ class DigitalTwinExecutor:
         elif opcode is PhysicalOpcode.RESET_ATOMS:
             for atom in self._present_atoms(task.instruction.operands, state):
                 self.backend.reset(atom, parameters["state"])
+                if parameters["purpose"] == "ancilla-loss-replacement" and atom.site_id is not None:
+                    site = state.sites[atom.site_id]
+                    if site.role is not AtomRole.ANCILLA or not site.known_erasure:
+                        raise ContractValidationError("ancilla replacement reset requires a known ancilla erasure")
+                    state.resolve_erasure(site.site_id)
         elif opcode is PhysicalOpcode.LOAD_RESERVOIR_ATOM:
             atom_id = task.instruction.operands[0]
             state.atoms[atom_id] = AtomState(atom_id, AtomRole.RESERVOIR, self.target.bindings.reservoir_zone_id)
@@ -300,7 +324,25 @@ class DigitalTwinExecutor:
             atom.trajectory_id = None
             atom.qubit_label = QubitLabel.ZERO
         elif opcode is PhysicalOpcode.IMAGE_ATOMS:
-            return tuple(self._presence_observation(task, state, run_id, observation_offset + index, atom_id) for index, atom_id in enumerate(task.instruction.operands))
+            emitted: list[Observation] = []
+            for atom_id in task.instruction.operands:
+                emitted.append(self._presence_observation(
+                    task, state, run_id, observation_offset + len(emitted), atom_id,
+                ))
+                atom = state.atoms.get(atom_id)
+                if atom is not None and not atom.present and atom.site_id is not None:
+                    site = state.sites[atom.site_id]
+                    if not site.known_erasure:
+                        state.register_detected_erasure(atom_id)
+                        emitted.append(Observation(
+                            f"obs-{run_id}-{observation_offset + len(emitted):04d}",
+                            ObservationKind.ATOM_LOSS, state.now_ns, task.task_id,
+                            {
+                                "atom_id": atom.atom_id, "block_id": site.block_id,
+                                "site_id": site.site_id, "atom_role": site.role.value,
+                            },
+                        ))
+            return tuple(emitted)
         elif opcode is PhysicalOpcode.MEASURE_ATOMS:
             if parameters["profile"] == "syndrome-readout-v0.1":
                 return (self._syndrome_observation(task, state, run_id, observation_offset),)

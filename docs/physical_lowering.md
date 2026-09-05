@@ -18,9 +18,10 @@ A CNOT is represented as `H(target) · CZ(control,target) · H(target)` rather t
 - Zones are finite rectangles in integer micrometers. Transport uses named waypoint trajectories with fixed positive durations and explicit conflict-group resources.
 - M3 prevents overlapping use beyond each conflict-group capacity, and M4 verifies the same binding. Collision freedom between different groups remains an input assertion; continuous paths are not simulated.
 - A pair batch is one calibrated instruction. Resource capacity and the M3 scheduler decide whether batches or independent logical CNOTs overlap.
-- Preparation produces an idealized physical seed, not a fault-tolerant encoded surface-code state. Stabilizer projection, repeated syndrome extraction, decoding, noise, and loss handling remain M6/M7 work.
+- Preparation produces an idealized physical seed, not a fault-tolerant encoded surface-code state. M6/M7 add explicit syndrome and deterministic loss-recovery control flow, but calibrated stochastic noise and full fault propagation remain M8 work.
 - The reference target uses finite unit-capacity devices and illustrative timing values. It is a reproducible compiler target, not experimental calibration data.
 
 ## Failure behavior
 
 Lowering fails before producing a graph if a required trajectory is absent, a binding has the wrong zone/resource class, finite zone capacity is insufficient, an instruction omits required semantics, or any task lacks a positive duration. Graph validation also rejects illegal zones, unknown resources, capacity overflow, and logical/QEC opcodes.
+

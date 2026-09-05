@@ -11,8 +11,11 @@ from compiler.physical_ir import (
 )
 from contracts.common import ContractValidationError, frozen_mapping, require_id
 from contracts.events import ObservationBatch
-from decoder.decoder import Decoder, DecoderInput, DecoderResult, PauliFrameDelta
+from decoder.decoder import (
+    Decoder, DecoderInput, DecoderResult, DecoderStatus, PauliFrameDelta,
+)
 from decoder.syndrome import SyndromeHistory
+from hardware.hardware_state import MachineState
 from hardware.zones import NeutralAtomTarget
 from qec.pauli_frame import PauliFrame, PhysicalPauliFrame
 from qec.surface_code import SurfaceCodeLayout
@@ -65,6 +68,7 @@ class RuntimeController:
         physical_frame: PhysicalPauliFrame | None = None,
         *,
         history_window: int = 2,
+        known_erasures_by_block: Mapping[str, tuple[str, ...]] | None = None,
     ) -> RuntimeCycleResult:
         history = SyndromeHistory.from_observation_batch(batch)
         if not history.samples:
@@ -81,6 +85,7 @@ class RuntimeController:
             decoder_input = DecoderInput(
                 f"decoder-{batch.run_id}-{block_id}-r{latest.round_index}",
                 layouts_by_block[block_id], block_history, logical,
+                tuple((known_erasures_by_block or {}).get(block_id, ())),
             )
             result = self.decoder.decode(decoder_input)
             logical, physical = apply_pauli_frame_delta(logical, physical, result.frame_delta)
@@ -94,6 +99,27 @@ class RuntimeController:
             tuple(feedbacks), logical, physical, snapshot,
             max(item.available_at_ns for item in feedbacks),
         )
+
+    @staticmethod
+    def finalize_recovered_erasures(
+        state: MachineState, cycle: RuntimeCycleResult,
+    ) -> tuple[str, ...]:
+        """Advance occupancy-plus-QEC-plus-decoder recoveries to resolved."""
+
+        resolved: list[str] = []
+        for feedback in cycle.feedbacks:
+            result = feedback.decoder_result
+            if result.status is not DecoderStatus.RECOVERED:
+                continue
+            block_id = result.diagnostics.get("block_id")
+            for local_site_id in result.diagnostics.get("recovered_erasure_sites", ()):
+                if not isinstance(block_id, str):
+                    raise ContractValidationError("recovered erasure result lacks a block ID")
+                qualified = f"{block_id}/{local_site_id}"
+                state.resolve_erasure(qualified)
+                resolved.append(qualified)
+        state.now_ns = max(state.now_ns, cycle.ready_at_ns)
+        return tuple(resolved)
 
     @staticmethod
     def build_feedback_barrier(cycle: RuntimeCycleResult, target: NeutralAtomTarget) -> PhysicalTaskGraph:
