@@ -18,6 +18,18 @@ logical workload
 
 This establishes the compiler/scheduler/executor boundary before runtime feedback is added.
 
+## M3 scheduling contract
+
+`ScheduleRequest` contains a validated physical task graph, its exact machine/calibration configuration, a scheduling lower bound, completed task IDs, fixed resource/zone intervals, a boolean condition snapshot, and a non-preemptive policy. It produces a canonical `TimedSchedule` with scheduled entries, structured unscheduled reasons, and one decision record per remaining task.
+
+The deterministic list order is dependency-ready time, descending task priority, original graph submission order, then task ID. Intervals are half-open `[start_ns, end_ns)`. Exclusive resource demands lock a complete resource; shared resource and zone demands sum against finite capacities. Fixed intervals use the same conflict rules.
+
+Conditions support only `truthy` and `falsy` in v0.1. A kept message may release several tasks; a consumed message releases only the first task selected by the deterministic list order. Unknown messages block rather than defaulting to true.
+
+Every delay is represented in `SchedulingDecision` as an earliest-start wait or capacity conflict, with the blocking task/fixed-interval IDs. Deadlines, policy horizons, false conditions, and descendants of unscheduled tasks produce structured `UnscheduledTask` records rather than silent indefinite waits.
+
+Zone demands in M3 represent capacity occupied while an instruction is active. Persistent atom locations and transit state are not inferred by the scheduler; the M4 machine state will validate those across instruction boundaries. Configured M2 move tasks conservatively reserve both source and destination capacity during transit.
+
 ## Dynamic runtime target
 
 The target runtime loop is conceptually:

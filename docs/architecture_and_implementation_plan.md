@@ -286,6 +286,8 @@ Logical GHZ
 
 ### M3：RESST 静态调度器
 
+状态：**已完成**。已实现确定性非抢占列表调度、资源/区域容量日历、固定区间、消息 keep/consume、deadline/horizon、结构化不可调度原因和逐任务决策日志，并覆盖 GHZ 低/高容量串并行配置。
+
 - 目标：实现资源容量、互斥、消息条件、优先级和依赖约束下的确定性列表调度。
 - 文件：`src/scheduler/{task,resources,scheduler}.py`、新增 `src/scheduler/resst.py`、`tests/scheduler/`。
 - 输入/输出：`ScheduleRequest` -> `TimedSchedule + decision_log`。
@@ -404,6 +406,6 @@ Logical GHZ
 4. 再冻结 syndrome/decoder/loss 物理协议，执行 M6-M7。
 5. 有实验参数后再执行 M8，避免过早把占位物理量固化为事实。
 
-在上述决策完成之前，不应开始大规模实现。M0、M1 与 M2 已完成；下一项最小且有用的工作是 **M3：确定性 RESST 风格调度**。
+在上述决策完成之前，不应开始大规模实现。M0 至 M3 已完成；下一项最小且有用的工作是 **M4：数字孪生与确定性轨迹**。
 
 

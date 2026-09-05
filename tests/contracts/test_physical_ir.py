@@ -6,7 +6,7 @@ import pytest
 
 from compiler.physical_ir import (
     PHYSICAL_ISA, PhysicalInstruction, PhysicalOpcode, PhysicalTask, PhysicalTaskGraph,
-    ResourceDemand, physical_instruction_from_untrusted,
+    ResourceDemand, ZoneDemand, physical_instruction_from_untrusted,
 )
 from contracts import CalibrationSnapshot, ContractValidationError, MachineConfig, ResourceSpec, ZoneKind, ZoneSpec
 
@@ -26,6 +26,7 @@ def task(task_id: str, predecessors: tuple[str, ...] = ()) -> PhysicalTask:
         }),
         predecessors=predecessors, resource_demands=(ResourceDemand("aod"),),
         zone_ids=("storage", "entangling"),
+        zone_demands=(ZoneDemand("storage", 1), ZoneDemand("entangling", 1)),
     )
 
 
@@ -78,9 +79,9 @@ def test_unknown_zone_resource_capacity_and_missing_duration_are_rejected() -> N
     with pytest.raises(ContractValidationError, match="unknown zones"):
         PhysicalTaskGraph("g", 0, (PhysicalTask("t", task("x").instruction, zone_ids=("moon",)),)).validate_against_machine(machine())
     with pytest.raises(ContractValidationError, match="unknown resource"):
-        PhysicalTaskGraph("g", 0, (PhysicalTask("t", task("x").instruction, resource_demands=(ResourceDemand("missing"),), zone_ids=("storage", "entangling")),)).validate_against_machine(machine())
+        PhysicalTaskGraph("g", 0, (PhysicalTask("t", task("x").instruction, resource_demands=(ResourceDemand("missing"),), zone_ids=("storage", "entangling"), zone_demands=(ZoneDemand("storage", 1), ZoneDemand("entangling", 1))),)).validate_against_machine(machine())
     with pytest.raises(ContractValidationError, match="exceeds resource capacity"):
-        PhysicalTaskGraph("g", 0, (PhysicalTask("t", task("x").instruction, resource_demands=(ResourceDemand("aod", 2),), zone_ids=("storage", "entangling")),)).validate_against_machine(machine())
+        PhysicalTaskGraph("g", 0, (PhysicalTask("t", task("x").instruction, resource_demands=(ResourceDemand("aod", 2),), zone_ids=("storage", "entangling"), zone_demands=(ZoneDemand("storage", 1), ZoneDemand("entangling", 1))),)).validate_against_machine(machine())
     with pytest.raises(ContractValidationError, match="no positive calibrated duration"):
         PhysicalTaskGraph("g", 0, (PhysicalTask("t", PhysicalInstruction(PhysicalOpcode.WAIT, parameters={"duration_ns": 5}), resource_demands=(ResourceDemand("aod"),)),)).validate_against_machine(machine())
 
@@ -93,6 +94,7 @@ def test_instruction_semantics_and_explicit_duration_are_enforced() -> None:
     graph = PhysicalTaskGraph("g", 0, (PhysicalTask(
         "move", task("x").instruction, resource_demands=(ResourceDemand("aod"),),
         zone_ids=("storage", "entangling"), duration_ns=25,
+        zone_demands=(ZoneDemand("storage", 1), ZoneDemand("entangling", 1)),
     ),))
     assert PhysicalTaskGraph.from_json(graph.to_json()) == graph
     assert graph.tasks[0].resolved_duration_ns(machine()) == 25

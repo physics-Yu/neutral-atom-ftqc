@@ -1,4 +1,11 @@
-"""RESST-style resource-constrained physical scheduler.
+"""Public facade for the RESST-style physical scheduler."""
 
-The scheduler assigns resources/timing to physical tasks and must remain independent of GHZ-specific and QEC-decoder semantics.
-"""
+from scheduler.resst import schedule_physical_tasks
+from scheduler.task import ScheduleRequest, TimedSchedule
+
+
+def schedule(request: ScheduleRequest) -> TimedSchedule:
+    return schedule_physical_tasks(request)
+
+
+__all__ = ["ScheduleRequest", "TimedSchedule", "schedule", "schedule_physical_tasks"]

@@ -40,8 +40,9 @@ All top-level contracts use schema version `0.1`, immutable slotted dataclasses,
 - Every executable opcode used by a graph must have a strictly positive calibrated duration. Unknown duration is an error, never an implicit zero.
 - Geometry coordinates use micrometers (`um`) in v0.1. Additional units require a schema-compatible enum extension and conversion policy.
 - The initial `MachineConfig` requires storage, entangling, readout, and reservoir zones. Every zone and resource has a finite positive integer capacity.
-- `ResourceMode.EXCLUSIVE` represents RESST lock behavior; `SHARED` represents a capacity claim. Arbitration is deferred to M3.
-- `ConditionRef` records RESST-style message predicates and keep/consume behavior. Evaluation is deferred to M3/runtime work.
+- `ResourceMode.EXCLUSIVE` locks an entire named resource for a half-open task interval. `SHARED` adds its quantity to the resource's finite capacity calendar.
+- Every `zone_id` claim has a matching positive `ZoneDemand`; M3 arbitrates these quantities against finite zone capacity during active task intervals.
+- `ConditionRef` supports the frozen M3 predicates `truthy` and `falsy`. `KEEP` permits reuse; `CONSUME` removes the message after the deterministically selected task is scheduled.
 - `PHYSICAL_ISA` is the executable registry for opcode family, legal zone kinds, resource classes, state effects, and observation production. The generic mapping remains JSON-only, but opcode-specific required fields are validated at construction.
 - A task has either a positive explicit `duration_ns` (used for configured transport trajectories) or a positive opcode duration in its calibration snapshot. Missing duration is an error.
 
@@ -80,6 +81,10 @@ An atom-loss observation must include `atom_id`, `block_id`, `site_id`, and `ato
         {"resource_id": "aod-0", "quantity": 1, "mode": "exclusive"}
       ],
       "zone_ids": ["storage", "entangling"],
+      "zone_demands": [
+        {"zone_id": "storage", "quantity": 17},
+        {"zone_id": "entangling", "quantity": 17}
+      ],
       "conditions": [],
       "dispatch_group_id": null,
       "provenance": {"logical_op_ids": ["cx-01"], "qec_op_ids": ["tcx-01"]}
@@ -90,7 +95,7 @@ An atom-loss observation must include `atom_id`, `block_id`, `site_id`, and `ato
 
 ## Intentionally deferred after M2
 
-M2 does not implement scheduling, collision simulation, device dispatch, quantum-state evolution, decoder behavior, or visualization. M3 will arbitrate resource capacity and concurrency; M4 will execute state transitions. The reference pulse and trajectory values are explicit modeling inputs, not claims about a laboratory device.
+M3 does not implement continuous collision simulation, device dispatch, quantum-state evolution, decoder behavior, or visualization. It arbitrates configured active-interval claims; M4 will execute and validate persistent machine-state transitions. The reference pulse and trajectory values are explicit modeling inputs, not claims about a laboratory device.
 
 ## M2 definition of done
 

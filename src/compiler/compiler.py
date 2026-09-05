@@ -1,4 +1,4 @@
-"""Logical-to-QEC expansion; physical lowering remains an M2 responsibility."""
+"""Logical-to-QEC expansion; physical lowering is isolated in compiler.lowering."""
 
 from __future__ import annotations
 

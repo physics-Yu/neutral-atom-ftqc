@@ -139,6 +139,16 @@ class ResourceDemand:
 
 
 @dataclass(frozen=True, slots=True)
+class ZoneDemand:
+    zone_id: str
+    quantity: int
+
+    def __post_init__(self) -> None:
+        require_id(self.zone_id, "zone demand ID")
+        _require_positive_integer(self.quantity, "zone demand quantity")
+
+
+@dataclass(frozen=True, slots=True)
 class ConditionRef:
     message_id: str
     predicate: str = "truthy"
@@ -175,6 +185,7 @@ class PhysicalTask:
     dispatch_group_id: str | None = None
     provenance: Provenance = field(default_factory=Provenance)
     duration_ns: int | None = None
+    zone_demands: tuple[ZoneDemand, ...] = ()
 
     def __post_init__(self) -> None:
         require_id(self.task_id, "task_id")
@@ -195,6 +206,12 @@ class PhysicalTask:
             require_id(self.dispatch_group_id, "dispatch_group_id")
         if self.duration_ns is not None:
             _require_positive_integer(self.duration_ns, "duration_ns")
+        demand_resource_ids = [demand.resource_id for demand in self.resource_demands]
+        if len(demand_resource_ids) != len(set(demand_resource_ids)):
+            raise ContractValidationError("resource demands must contain unique resource IDs")
+        demand_zone_ids = [demand.zone_id for demand in self.zone_demands]
+        if len(demand_zone_ids) != len(set(demand_zone_ids)):
+            raise ContractValidationError("zone demands must contain unique zone IDs")
 
     def resolved_duration_ns(self, machine: MachineConfig) -> int:
         if self.duration_ns is not None:
@@ -234,6 +251,7 @@ class PhysicalTaskGraph:
     def validate_against_machine(self, machine: MachineConfig) -> None:
         zone_ids = {zone.zone_id for zone in machine.zones}
         resources = {resource.resource_id: resource for resource in machine.resources}
+        zones = {zone.zone_id: zone for zone in machine.zones}
         for task in self.tasks:
             unknown_zones = set(task.zone_ids) - zone_ids
             if unknown_zones:
@@ -243,6 +261,11 @@ class PhysicalTaskGraph:
             task_zone_kinds = {zone.kind.value for zone in machine.zones if zone.zone_id in task.zone_ids}
             if task_zone_kinds - set(semantics.allowed_zone_kinds):
                 raise ContractValidationError(f"task {task.task_id!r} uses an illegal zone for {task.instruction.opcode.value}")
+            if set(task.zone_ids) != {demand.zone_id for demand in task.zone_demands}:
+                raise ContractValidationError(f"task {task.task_id!r} must explicitly quantify every zone claim")
+            for demand in task.zone_demands:
+                if demand.quantity > zones[demand.zone_id].capacity:
+                    raise ContractValidationError(f"task {task.task_id!r} exceeds zone capacity")
             if task.instruction.opcode in {PhysicalOpcode.MOVE_ATOMS, PhysicalOpcode.MOVE_BLOCK}:
                 endpoints = {
                     task.instruction.parameters["source_zone_id"],
@@ -292,6 +315,9 @@ class PhysicalTaskGraph:
                     qec_op_ids=tuple(item.get("provenance", {}).get("qec_op_ids", ())),
                 ),
                 duration_ns=item.get("duration_ns"),
+                zone_demands=tuple(ZoneDemand(
+                    zone_id=value["zone_id"], quantity=value["quantity"],
+                ) for value in item.get("zone_demands", ())),
             ))
         return cls(graph_id=data["graph_id"], revision=data["revision"], tasks=tuple(tasks),
                    schema_version=data.get("schema_version", SCHEMA_VERSION))

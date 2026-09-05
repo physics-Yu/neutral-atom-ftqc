@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from compiler.physical_ir import PhysicalInstruction, PhysicalOpcode, PhysicalTask, PhysicalTaskGraph, ResourceDemand
+from compiler.physical_ir import PhysicalInstruction, PhysicalOpcode, PhysicalTask, PhysicalTaskGraph, ResourceDemand, ZoneDemand
 from hardware.zones import build_reference_target
 
 
@@ -25,6 +25,7 @@ def test_all_physical_opcodes_have_executable_reference_target_bindings() -> Non
         PhysicalTask(
             f"task-{opcode.value}", PhysicalInstruction(opcode, operands, parameters),
             resource_demands=(ResourceDemand(resource),), zone_ids=zones,
+            zone_demands=tuple(ZoneDemand(zone_id, 1) for zone_id in zones),
         )
         for opcode, operands, parameters, zones, resource in cases
     )

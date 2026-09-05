@@ -7,7 +7,7 @@ from typing import Any, Mapping
 
 from compiler.physical_ir import (
     PhysicalInstruction, PhysicalOpcode, PhysicalTask, PhysicalTaskGraph,
-    Provenance, ResourceDemand,
+    Provenance, ResourceDemand, ResourceMode, ZoneDemand,
 )
 from compiler.qec_ir import EncodedBlock, QECOp, QECOpKind, QECProtocolIR
 from contracts.common import ContractValidationError
@@ -23,12 +23,17 @@ class NeutralAtomLowerer:
     target: NeutralAtomTarget
     _tasks: list[PhysicalTask] = field(default_factory=list, init=False)
     _terminals: dict[str, tuple[str, ...]] = field(default_factory=dict, init=False)
+    _block_sizes: dict[str, int] = field(default_factory=dict, init=False)
 
     def lower(self, protocol: QECProtocolIR) -> PhysicalTaskGraph:
         self.target.validate_protocol_capacity(protocol)
         self._tasks = []
         self._terminals = {}
         blocks = {block.block_id: block for block in protocol.blocks}
+        self._block_sizes = {
+            block.block_id: len(block.data_site_ids) + len(block.ancilla_site_ids)
+            for block in protocol.blocks
+        }
         for operation in protocol.operations:
             predecessors = tuple(
                 task_id for predecessor in operation.predecessors
@@ -55,7 +60,8 @@ class NeutralAtomLowerer:
         self._add(
             reset_id, PhysicalOpcode.RESET_ATOMS, atoms,
             {"state": "zero", "profile": "surface-code-block-reset", "purpose": "initialization_seed"},
-            predecessors, self.target.bindings.storage_zone_id, self.target.bindings.reset_resource_id, op,
+            predecessors, {self.target.bindings.storage_zone_id: self._block_sizes[block.block_id]},
+            self.target.bindings.reset_resource_id, op,
         )
         if op.kind is QECOpKind.PREPARE_ZERO:
             return (reset_id,)
@@ -64,7 +70,8 @@ class NeutralAtomLowerer:
         self._add(
             pulse_id, PhysicalOpcode.APPLY_1Q_PULSE, data_atoms,
             {"operation": "ry_pi_over_2", "pulse_id": "logical-plus-seed"},
-            (reset_id,), self.target.bindings.storage_zone_id, self.target.bindings.one_qubit_resource_id, op,
+            (reset_id,), {self.target.bindings.storage_zone_id: self._block_sizes[block.block_id]},
+            self.target.bindings.one_qubit_resource_id, op,
         )
         return (pulse_id,)
 
@@ -77,30 +84,35 @@ class NeutralAtomLowerer:
             for pair in op.pairings
         )
         operands = tuple(atom for pair in pairs for atom in pair)
+        entangling_occupancy = self._block_sizes[control_id] + self._block_sizes[target_id]
         align_id = f"phy-{op.qec_op_id}-align"
         self._add(
             align_id, PhysicalOpcode.ALIGN_ATOMS, operands,
             {"pairs": pairs, "alignment_profile": "pairwise-rydberg-v0.1"},
-            (move_control, move_target), "entangling", self.target.bindings.transport_resource_id, op,
+            (move_control, move_target), {self.target.bindings.entangling_zone_id: entangling_occupancy},
+            self.target.bindings.transport_resource_id, op,
         )
         targets = tuple(pair[1] for pair in pairs)
         pre_h = f"phy-{op.qec_op_id}-target-h-before"
         self._add(
             pre_h, PhysicalOpcode.APPLY_1Q_PULSE, targets,
             {"operation": "hadamard", "pulse_id": "calibrated-h-v0.1"},
-            (align_id,), "entangling", self.target.bindings.one_qubit_resource_id, op,
+            (align_id,), {self.target.bindings.entangling_zone_id: entangling_occupancy},
+            self.target.bindings.one_qubit_resource_id, op,
         )
         cz_id = f"phy-{op.qec_op_id}-rydberg-cz"
         self._add(
             cz_id, PhysicalOpcode.APPLY_2Q_RYDBERG_GATE, operands,
             {"gate": "cz", "pulse_id": "parallel-cz-v0.1", "pairs": pairs},
-            (pre_h,), "entangling", self.target.bindings.rydberg_resource_id, op,
+            (pre_h,), {self.target.bindings.entangling_zone_id: entangling_occupancy},
+            self.target.bindings.rydberg_resource_id, op,
         )
         post_h = f"phy-{op.qec_op_id}-target-h-after"
         self._add(
             post_h, PhysicalOpcode.APPLY_1Q_PULSE, targets,
             {"operation": "hadamard", "pulse_id": "calibrated-h-v0.1"},
-            (cz_id,), "entangling", self.target.bindings.one_qubit_resource_id, op,
+            (cz_id,), {self.target.bindings.entangling_zone_id: entangling_occupancy},
+            self.target.bindings.one_qubit_resource_id, op,
         )
         return (
             self._move(op, control_id, "entangling", "storage", (post_h,), "move-control-out"),
@@ -114,7 +126,8 @@ class NeutralAtomLowerer:
         self._add(
             task_id, PhysicalOpcode.MEASURE_ATOMS, atoms,
             {"basis": "z", "profile": "logical-data-readout-v0.1"},
-            (move,), "readout", self.target.bindings.readout_resource_id, op,
+            (move,), {self.target.bindings.readout_zone_id: self._block_sizes[block.block_id]},
+            self.target.bindings.readout_resource_id, op,
         )
         return (task_id,)
 
@@ -123,7 +136,8 @@ class NeutralAtomLowerer:
         self._add(
             task_id, PhysicalOpcode.EMIT_SYNC, op.block_ids,
             {"tag": op.qec_op_id, "channel": "qec"}, predecessors,
-            "storage", self.target.bindings.clock_resource_id, op,
+            {self.target.bindings.storage_zone_id: sum(self._block_sizes[item] for item in op.block_ids)},
+            self.target.bindings.clock_resource_id, op,
         )
         return (task_id,)
 
@@ -135,7 +149,8 @@ class NeutralAtomLowerer:
         self._add(
             task_id, PhysicalOpcode.MOVE_BLOCK, (block_id,),
             {"trajectory_id": trajectory.trajectory_id, "source_zone_id": source_id, "destination_zone_id": destination_id},
-            predecessors, (source_id, destination_id), self.target.bindings.transport_resource_id, op,
+            predecessors, {source_id: self._block_sizes[block_id], destination_id: self._block_sizes[block_id]},
+            self.target.bindings.transport_resource_id, op,
             duration_ns=trajectory.duration_ns,
         )
         return task_id
@@ -143,20 +158,20 @@ class NeutralAtomLowerer:
     def _add(
         self, task_id: str, opcode: PhysicalOpcode, operands: tuple[str, ...],
         parameters: Mapping[str, Any], predecessors: tuple[str, ...],
-        zone_ids: str | tuple[str, ...], resource_id: str, op: QECOp,
+        zone_quantities: Mapping[str, int], resource_id: str, op: QECOp,
         *, duration_ns: int | None = None,
     ) -> None:
-        if isinstance(zone_ids, str):
-            zone_ids = (zone_ids,)
+        zone_demands = tuple(ZoneDemand(zone_id, quantity) for zone_id, quantity in zone_quantities.items())
         self._tasks.append(PhysicalTask(
             task_id=task_id,
             instruction=PhysicalInstruction(opcode, operands, parameters),
             predecessors=predecessors,
-            resource_demands=(ResourceDemand(resource_id),),
-            zone_ids=zone_ids,
+            resource_demands=(ResourceDemand(resource_id, mode=ResourceMode.SHARED),),
+            zone_ids=tuple(zone_quantities),
             dispatch_group_id=op.qec_op_id,
             provenance=Provenance((op.logical_op_id,), (op.qec_op_id,)),
             duration_ns=duration_ns,
+            zone_demands=zone_demands,
         ))
 
 

@@ -1,4 +1,4 @@
-"""Build the four-logical-qubit GHZ logical and QEC protocol IRs."""
+"""Build and schedule the four-logical-qubit GHZ physical workload."""
 
 from __future__ import annotations
 
@@ -14,6 +14,8 @@ from compiler.physical_ir import PhysicalTaskGraph
 from compiler.qec_ir import QECProtocolIR
 from hardware.zones import build_reference_target
 from qec.surface_code import SurfaceCodeSpec, generate_surface_code_layout
+from scheduler.resst import schedule_physical_tasks
+from scheduler.task import ScheduleRequest, TimedSchedule
 
 
 def build_ghz_logical_circuit(distance: int = 3) -> LogicalCircuitIR:
@@ -57,18 +59,26 @@ def build_ghz_physical_graph(distance: int = 3) -> PhysicalTaskGraph:
     return lower_to_neutral_atom_tasks(build_ghz_qec_protocol(distance), build_reference_target())
 
 
+def build_ghz_schedule(distance: int = 3) -> TimedSchedule:
+    target = build_reference_target()
+    graph = lower_to_neutral_atom_tasks(build_ghz_qec_protocol(distance), target)
+    return schedule_physical_tasks(ScheduleRequest(f"ghz-d{distance}", graph, target.machine))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--distance", type=int, default=3)
     args = parser.parse_args()
     protocol = build_ghz_qec_protocol(args.distance)
     graph = build_ghz_physical_graph(args.distance)
+    schedule = build_ghz_schedule(args.distance)
     cnot_ops = [op for op in protocol.operations if op.kind.value == "transversal_cnot"]
     print(
         f"Built {protocol.protocol_id}: {len(protocol.blocks)} blocks, "
         f"{len(protocol.operations)} QEC operations, "
         f"{len(cnot_ops[0].pairings)} physical pairs per transversal CNOT; "
-        f"lowered to {len(graph.tasks)} physical tasks."
+        f"lowered to {len(graph.tasks)} physical tasks; "
+        f"scheduled makespan {schedule.makespan_ns} ns."
     )
 
 

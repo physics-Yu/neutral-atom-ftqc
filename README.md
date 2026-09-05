@@ -21,9 +21,9 @@ The lowest executable layer contains only operations that an experimental platfo
 
 ## Current status
 
-M0, M1, and M2 are complete. The repository now includes schema-v0.1 boundary contracts, a distance-parameterized rotated planar surface-code layout, immutable logical blocks and Pauli frames, a QEC protocol IR, and a four-block GHZ builder with explicit transversal data-site pairings. M2 adds validated per-opcode Physical ISA semantics, finite zone/resource bindings, explicit transport trajectories, and deterministic lowering to a physical task DAG. Contract and model tests cover both `d=3` and `d=5`.
+M0 through M3 are complete. The repository includes schema-v0.1 boundary contracts, a distance-parameterized rotated planar surface-code layout, immutable logical blocks and Pauli frames, a QEC protocol IR, validated Physical ISA semantics, finite zone/resource bindings, explicit transport trajectories, deterministic physical lowering, and a non-preemptive RESST-style scheduler. Contract and model tests cover both `d=3` and `d=5`.
 
-The next implementation milestone is **M3: deterministic RESST-style scheduling**. Physical tasks are not yet timed against one another or executed by a digital twin.
+The next implementation milestone is **M4: digital-twin execution and deterministic traces**. Physical tasks now receive conflict-free planned times, but those plans are not yet executed against mutable machine state.
 
 See `AGENTS.md` for project-wide constraints and `docs/architecture_and_implementation_plan.md` for the milestone plan.
 
