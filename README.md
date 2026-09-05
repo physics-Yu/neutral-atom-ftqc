@@ -59,5 +59,7 @@ The bundled nonzero probabilities are explicitly synthetic demonstration inputs,
 
 See `AGENTS.md` for project-wide constraints and `docs/architecture_and_implementation_plan.md` for the milestone plan.
 
+完整的中文项目说明、目录导览、M0–M8 功能清单和复现命令见 [`docs/project_guide_zh.md`](docs/project_guide_zh.md)。
+
 
 
