@@ -41,13 +41,22 @@ The logical algorithm is intentionally small. The demo is intended to expose the
 - machine-state evolution;
 - later: syndrome/QEC feedback and atom-loss recovery.
 
-## M3 implementation status
+## M4 implementation status
 
 `examples/ghz_surface_code.py` now builds `LogicalCircuitIR`, `QECProtocolIR`, and a complete `PhysicalTaskGraph`. The QEC expansion creates four encoded rotated-planar blocks and an explicit `d^2`-pair bijection for every transversal logical CNOT. The two layer-two CNOTs retain no dependency on one another.
 
 Each transversal CNOT lowers to two block moves, pair alignment, target Hadamard, pairwise Rydberg CZ, target Hadamard, and two return moves. The `d=3` and `d=5` demo graphs each contain 29 physical tasks; pair widths scale with `d^2`.
 
-M3 assigns deterministic non-preemptive start/end times under explicit resource and active-zone capacity claims. With the unit-capacity reference control resources, the independent second-layer CNOTs serialize at each conflicting device. Raising the transport capacity to four and one-qubit/Rydberg capacities to two makes their CZ intervals overlap without changing the compiler DAG. A simulated GHZ state is not produced yet.
+M3 assigns deterministic non-preemptive start/end times under explicit resource, active-zone, and trajectory-corridor capacity claims. M4 executes those times against atom/site/block state, represents transport as an in-transit interval, independently rechecks conflicts, and emits replayable start/completion/observation events plus machine snapshots.
+
+With `--measure`, four logical-data readouts are appended and each block returns to storage after measurement. The `d=3` baseline executes 41 physical tasks and emits 36 measurements; `d=5` executes the same task shape with wider batches and emits 100 measurements. The symbolic ideal backend proves the execution/state contracts, not encoded GHZ fidelity.
+
+Run:
+
+```powershell
+$env:PYTHONPATH = "src;."
+python examples/ghz_surface_code.py --distance 3 --execute --measure
+```
 
 ## First vertical slice
 

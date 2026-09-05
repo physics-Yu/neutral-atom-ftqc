@@ -297,6 +297,8 @@ Logical GHZ
 
 ### M4：数字孪生与确定性轨迹
 
+状态：**已完成**。已实现 12 个物理 opcode 的确定性状态转换、可替换状态后端、计划独立复核、轨迹冲突走廊、在途/区域占用不变量、观察批次及可重放事件/快照；连续避碰与高保真量子态仿真仍为显式后续项。
+
 - 目标：按计划执行物理指令，维护机器不变量并生成观察、状态快照与可重放轨迹。
 - 文件：`src/hardware/{atom,hardware_state,geometry,zones}.py`、`src/simulator/{executor,experiment}.py`、新增 `src/simulator/events.py`、`tests/simulator/`。
 - 输入/输出：`MachineState + TimedSchedule` -> `ExecutionTrace + ObservationBatch + final MachineState`。
@@ -406,6 +408,6 @@ Logical GHZ
 4. 再冻结 syndrome/decoder/loss 物理协议，执行 M6-M7。
 5. 有实验参数后再执行 M8，避免过早把占位物理量固化为事实。
 
-在上述决策完成之前，不应开始大规模实现。M0 至 M3 已完成；下一项最小且有用的工作是 **M4：数字孪生与确定性轨迹**。
+在上述决策完成之前，不应开始大规模实现。M0 至 M4 已完成；下一项最小且有用的工作是 **M5：三视图可视化与理想 GHZ 纵向切片**。
 
 

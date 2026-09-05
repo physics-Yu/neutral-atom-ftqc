@@ -65,6 +65,10 @@ class NeutralAtomTarget:
         for resource_id, resource_class in required.items():
             if resources.get(resource_id) != resource_class:
                 raise ContractValidationError(f"resource {resource_id!r} is not class {resource_class!r}")
+        for trajectory in self.geometry.trajectories:
+            for group_id in trajectory.conflict_group_ids:
+                if resources.get(group_id) != "transport_corridor":
+                    raise ContractValidationError(f"trajectory conflict group {group_id!r} is not a transport_corridor resource")
 
     def validate_protocol_capacity(self, protocol: QECProtocolIR) -> None:
         capacities = {zone.kind: zone.capacity for zone in self.machine.zones}
@@ -91,8 +95,8 @@ def build_reference_target() -> NeutralAtomTarget:
 
     zones = (
         ZoneSpec("storage", ZoneKind.STORAGE, 256),
-        ZoneSpec("entangling", ZoneKind.ENTANGLING, 128),
-        ZoneSpec("readout", ZoneKind.READOUT, 64),
+        ZoneSpec("entangling", ZoneKind.ENTANGLING, 256),
+        ZoneSpec("readout", ZoneKind.READOUT, 256),
         ZoneSpec("reservoir", ZoneKind.RESERVOIR, 128),
     )
     resource_classes = (
@@ -100,6 +104,9 @@ def build_reference_target() -> NeutralAtomTarget:
         ("rydberg-0", "rydberg_control"), ("camera-0", "imaging"),
         ("readout-0", "readout"), ("reset-0", "reset"),
         ("loader-0", "reservoir_loading"), ("clock-0", "clock"),
+        ("corridor-storage-entangling", "transport_corridor"),
+        ("corridor-storage-readout", "transport_corridor"),
+        ("corridor-reservoir-storage", "transport_corridor"),
     )
     durations = {opcode.value: 1_000 for opcode in PhysicalOpcode}
     durations.update({
@@ -122,10 +129,11 @@ def build_reference_target() -> NeutralAtomTarget:
             ZoneGeometry("reservoir", Point2D(0, 150), 100, 100),
         ),
         trajectories=(
-            TrajectorySpec("storage-to-entangling", "storage", "entangling", (Point2D(100, 50), Point2D(150, 50)), 50_000),
-            TrajectorySpec("entangling-to-storage", "entangling", "storage", (Point2D(150, 50), Point2D(100, 50)), 50_000),
-            TrajectorySpec("storage-to-readout", "storage", "readout", (Point2D(100, 50), Point2D(300, 50)), 80_000),
-            TrajectorySpec("readout-to-storage", "readout", "storage", (Point2D(300, 50), Point2D(100, 50)), 80_000),
+            TrajectorySpec("storage-to-entangling", "storage", "entangling", (Point2D(100, 50), Point2D(150, 50)), 50_000, ("corridor-storage-entangling",)),
+            TrajectorySpec("entangling-to-storage", "entangling", "storage", (Point2D(150, 50), Point2D(100, 50)), 50_000, ("corridor-storage-entangling",)),
+            TrajectorySpec("storage-to-readout", "storage", "readout", (Point2D(100, 50), Point2D(300, 50)), 80_000, ("corridor-storage-readout",)),
+            TrajectorySpec("readout-to-storage", "readout", "storage", (Point2D(300, 50), Point2D(100, 50)), 80_000, ("corridor-storage-readout",)),
+            TrajectorySpec("reservoir-to-storage", "reservoir", "storage", (Point2D(50, 150), Point2D(50, 100)), 40_000, ("corridor-reservoir-storage",)),
         ),
     )
     bindings = HardwareResourceBindings(

@@ -218,7 +218,10 @@ def test_ghz_second_layer_serializes_or_overlaps_from_actual_capacity() -> None:
     graph = build_ghz_physical_graph(3)
     low = schedule_physical_tasks(ScheduleRequest("low", graph, target.machine))
 
-    capacities = {"aod-0": 4, "oneq-0": 2, "rydberg-0": 2}
+    capacities = {
+        "aod-0": 4, "oneq-0": 2, "rydberg-0": 2,
+        "corridor-storage-entangling": 4,
+    }
     resources = tuple(replace(item, capacity=capacities.get(item.resource_id, item.capacity)) for item in target.machine.resources)
     high_machine = replace(target.machine, resources=resources)
     high = schedule_physical_tasks(ScheduleRequest("high", graph, high_machine))

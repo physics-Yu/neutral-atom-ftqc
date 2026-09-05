@@ -30,6 +30,16 @@ Every delay is represented in `SchedulingDecision` as an earliest-start wait or 
 
 Zone demands in M3 represent capacity occupied while an instruction is active. Persistent atom locations and transit state are not inferred by the scheduler; the M4 machine state will validate those across instruction boundaries. Configured M2 move tasks conservatively reserve both source and destination capacity during transit.
 
+## M4 digital-twin execution
+
+`DigitalTwinExecutor` independently validates the complete schedule before changing state. It checks graph/revision identity, task coverage, exact duration and assignments, DAG order, deadlines, resource/zone calendars, trajectory endpoint/duration/conflict-group bindings, unique dispatch order, and overlapping access to the same physical atom. A schedule produced or edited outside RESST cannot bypass these checks.
+
+Movement is a two-event transition: task start moves atoms/blocks from a source zone into a named trajectory; task completion places them in the destination zone. Machine-state validation after every completion checks atom/site consistency, block location, configured zone capacity, and reservoir/erasure invariants. This catches accumulated persistent occupancy that an active-interval-only schedule cannot see.
+
+Every start, completion, and emitted observation is correlated with task ID, physical opcode, planned interval, resource/zone assignments, trajectory, logical/QEC provenance, and a deterministic state digest. Snapshots include per-atom and per-block location, zone occupancy, symbolic qubit-label counts, reservoir inventory, known erasures, and aligned-pair count. Canonical JSON makes a run replay-comparable byte for byte.
+
+The replaceable `StateBackend` boundary currently uses `DeterministicIdealBackend`. It tracks ideal symbolic labels for reset, H, `Ry(pi/2)`, X, and CZ and chooses reproducible X/Z measurement branches. It is deliberately not an amplitude/stabilizer/noise simulator and does not establish GHZ fidelity; M6 will add QEC/syndrome semantics and a later backend may implement full quantum-state fidelity.
+
 ## Dynamic runtime target
 
 The target runtime loop is conceptually:

@@ -19,7 +19,7 @@ The v0.1 opcode set is:
 | `measure_atoms` | atoms; basis/profile | readout | readout | emits destructive qubit measurements |
 | `reset_atoms` | atoms; state/profile/purpose | storage, readout, reservoir | reset | prepares configured basis state |
 | `load_reservoir_atom` | one atom; profile | reservoir | reservoir loading | adds usable reservoir atom |
-| `place_atom` | replacement and vacant site; destination/profile | storage, reservoir | transport | restores occupancy, not quantum data |
+| `place_atom` | replacement and vacant site; destination/profile/trajectory/source/destination | storage, reservoir | transport | restores occupancy, not quantum data |
 | `wait` | explicit positive duration | all | clock | retains subjects/resources |
 | `emit_sync` | tag/channel | all | clock | emits synchronization marker |
 
@@ -45,6 +45,7 @@ All top-level contracts use schema version `0.1`, immutable slotted dataclasses,
 - `ConditionRef` supports the frozen M3 predicates `truthy` and `falsy`. `KEEP` permits reuse; `CONSUME` removes the message after the deterministically selected task is scheduled.
 - `PHYSICAL_ISA` is the executable registry for opcode family, legal zone kinds, resource classes, state effects, and observation production. The generic mapping remains JSON-only, but opcode-specific required fields are validated at construction.
 - A task has either a positive explicit `duration_ns` (used for configured transport trajectories) or a positive opcode duration in its calibration snapshot. Missing duration is an error.
+- Every movement or placement trajectory declares one or more `transport_corridor` conflict groups. Lowering adds those finite-capacity resources to the task; the scheduler arbitrates them and the executor independently verifies them.
 
 ## Boundary validation
 
@@ -93,14 +94,14 @@ An atom-loss observation must include `atom_id`, `block_id`, `site_id`, and `ato
 }
 ```
 
-## Intentionally deferred after M2
+## Intentionally deferred after M4
 
-M3 does not implement continuous collision simulation, device dispatch, quantum-state evolution, decoder behavior, or visualization. It arbitrates configured active-interval claims; M4 will execute and validate persistent machine-state transitions. The reference pulse and trajectory values are explicit modeling inputs, not claims about a laboratory device.
+M4 does not implement continuous collision dynamics, automated path planning, device dispatch, stochastic loss/noise, decoder behavior, or visualization. Routing conflicts are conservative named-corridor constraints over configured waypoint paths; geometric intersection and minimum-separation analysis remain higher-fidelity work. The reference pulse, path, capacity, and timing values are explicit modeling inputs, not laboratory calibration claims.
 
-## M2 definition of done
+## M4 definition of done
 
-- Every opcode has validated operands/parameters, legal zones, required resource classes, and a documented effect.
-- Every physical task resolves to a strictly positive duration.
-- Logical and QEC macros remain unable to cross the physical boundary.
-- `d=3` and `d=5` GHZ protocols lower deterministically to physical-only DAGs with traceable transversal pairings.
+- All 12 opcodes have tested machine-state transitions or observation behavior.
+- Transport has explicit in-transit state, endpoints, duration, and conflict groups.
+- The executor rejects invalid layer crossings, schedule conflicts, subject overlap, route omissions, and persistent capacity overflow.
+- Measured `d=3` and `d=5` GHZ workflows execute without state invariant violations and produce byte-stable traces.
 

@@ -129,7 +129,7 @@ class NeutralAtomLowerer:
             (move,), {self.target.bindings.readout_zone_id: self._block_sizes[block.block_id]},
             self.target.bindings.readout_resource_id, op,
         )
-        return (task_id,)
+        return (self._move(op, block.block_id, "readout", "storage", (task_id,), "move-from-readout"),)
 
     def _lower_barrier(self, op: QECOp, predecessors: tuple[str, ...]) -> tuple[str, ...]:
         task_id = f"phy-{op.qec_op_id}-sync"
@@ -152,6 +152,7 @@ class NeutralAtomLowerer:
             predecessors, {source_id: self._block_sizes[block_id], destination_id: self._block_sizes[block_id]},
             self.target.bindings.transport_resource_id, op,
             duration_ns=trajectory.duration_ns,
+            extra_resource_ids=trajectory.conflict_group_ids,
         )
         return task_id
 
@@ -159,14 +160,17 @@ class NeutralAtomLowerer:
         self, task_id: str, opcode: PhysicalOpcode, operands: tuple[str, ...],
         parameters: Mapping[str, Any], predecessors: tuple[str, ...],
         zone_quantities: Mapping[str, int], resource_id: str, op: QECOp,
-        *, duration_ns: int | None = None,
+        *, duration_ns: int | None = None, extra_resource_ids: tuple[str, ...] = (),
     ) -> None:
         zone_demands = tuple(ZoneDemand(zone_id, quantity) for zone_id, quantity in zone_quantities.items())
         self._tasks.append(PhysicalTask(
             task_id=task_id,
             instruction=PhysicalInstruction(opcode, operands, parameters),
             predecessors=predecessors,
-            resource_demands=(ResourceDemand(resource_id, mode=ResourceMode.SHARED),),
+            resource_demands=(
+                ResourceDemand(resource_id, mode=ResourceMode.SHARED),
+                *(ResourceDemand(item, mode=ResourceMode.SHARED) for item in extra_resource_ids),
+            ),
             zone_ids=tuple(zone_quantities),
             dispatch_group_id=op.qec_op_id,
             provenance=Provenance((op.logical_op_id,), (op.qec_op_id,)),

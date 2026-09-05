@@ -40,6 +40,7 @@ class TrajectorySpec:
     destination_zone_id: str
     waypoints: tuple[Point2D, ...]
     duration_ns: int
+    conflict_group_ids: tuple[str, ...]
 
     def __post_init__(self) -> None:
         for value, name in ((self.trajectory_id, "trajectory_id"), (self.source_zone_id, "source_zone_id"), (self.destination_zone_id, "destination_zone_id")):
@@ -50,6 +51,12 @@ class TrajectorySpec:
             raise ContractValidationError("trajectory must contain at least two Point2D waypoints")
         if not isinstance(self.duration_ns, int) or isinstance(self.duration_ns, bool) or self.duration_ns <= 0:
             raise ContractValidationError("trajectory duration_ns must be positive")
+        if not self.conflict_group_ids:
+            raise ContractValidationError("trajectory must declare at least one routing conflict group")
+        if len(self.conflict_group_ids) != len(set(self.conflict_group_ids)):
+            raise ContractValidationError("trajectory conflict groups must be unique")
+        for group_id in self.conflict_group_ids:
+            require_id(group_id, "trajectory conflict group ID")
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,3 +81,9 @@ class MachineGeometry:
             if item.source_zone_id == source_zone_id and item.destination_zone_id == destination_zone_id:
                 return item
         raise ContractValidationError(f"no configured trajectory from {source_zone_id!r} to {destination_zone_id!r}")
+
+    def trajectory_by_id(self, trajectory_id: str) -> TrajectorySpec:
+        for item in self.trajectories:
+            if item.trajectory_id == trajectory_id:
+                return item
+        raise ContractValidationError(f"unknown trajectory {trajectory_id!r}")

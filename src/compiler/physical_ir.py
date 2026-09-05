@@ -116,7 +116,10 @@ class PhysicalInstruction:
             _require_parameters(parameters, "profile")
         elif opcode is PhysicalOpcode.PLACE_ATOM:
             _require_operands(self, exactly=2)
-            _require_parameters(parameters, "destination_site_id", "profile")
+            _require_parameters(
+                parameters, "destination_site_id", "profile", "trajectory_id",
+                "source_zone_id", "destination_zone_id",
+            )
         elif opcode is PhysicalOpcode.WAIT:
             _require_parameters(parameters, "duration_ns")
             _require_positive_integer(parameters["duration_ns"], "wait duration_ns")
@@ -266,7 +269,7 @@ class PhysicalTaskGraph:
             for demand in task.zone_demands:
                 if demand.quantity > zones[demand.zone_id].capacity:
                     raise ContractValidationError(f"task {task.task_id!r} exceeds zone capacity")
-            if task.instruction.opcode in {PhysicalOpcode.MOVE_ATOMS, PhysicalOpcode.MOVE_BLOCK}:
+            if task.instruction.opcode in {PhysicalOpcode.MOVE_ATOMS, PhysicalOpcode.MOVE_BLOCK, PhysicalOpcode.PLACE_ATOM}:
                 endpoints = {
                     task.instruction.parameters["source_zone_id"],
                     task.instruction.parameters["destination_zone_id"],

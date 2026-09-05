@@ -17,7 +17,7 @@ def test_all_physical_opcodes_have_executable_reference_target_bindings() -> Non
         (PhysicalOpcode.MEASURE_ATOMS, ("a",), {"basis": "z", "profile": "p"}, ("readout",), "readout-0"),
         (PhysicalOpcode.RESET_ATOMS, ("a",), {"state": "zero", "profile": "p", "purpose": "test"}, ("storage",), "reset-0"),
         (PhysicalOpcode.LOAD_RESERVOIR_ATOM, ("a",), {"profile": "p"}, ("reservoir",), "loader-0"),
-        (PhysicalOpcode.PLACE_ATOM, ("replacement", "vacancy"), {"destination_site_id": "vacancy", "profile": "p"}, ("storage",), "aod-0"),
+        (PhysicalOpcode.PLACE_ATOM, ("replacement", "vacancy"), {"destination_site_id": "vacancy", "profile": "p", "trajectory_id": "reservoir-to-storage", "source_zone_id": "reservoir", "destination_zone_id": "storage"}, ("reservoir", "storage"), "aod-0"),
         (PhysicalOpcode.WAIT, (), {"duration_ns": 10}, ("storage",), "clock-0"),
         (PhysicalOpcode.EMIT_SYNC, (), {"tag": "t", "channel": "c"}, ("storage",), "clock-0"),
     )

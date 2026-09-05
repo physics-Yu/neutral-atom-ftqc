@@ -25,7 +25,7 @@ Ready tasks are ordered by:
 3. original graph position;
 4. task ID.
 
-Each selected task is placed in its earliest feasible interval. An `EXCLUSIVE` resource conflicts with every overlapping claim. `SHARED` resource quantities and zone quantities may overlap up to configured capacity. Tasks are indivisible and cannot be preempted in M3.
+Each selected task is placed in its earliest feasible interval. An `EXCLUSIVE` resource conflicts with every overlapping claim. `SHARED` resource quantities and zone quantities may overlap up to configured capacity. Trajectory conflict groups are ordinary finite `transport_corridor` resources, so same-corridor movement serializes unless the configured corridor has multiple independently validated lanes. Tasks are indivisible and cannot be preempted in M3.
 
 ## Conditions and rescheduling boundary
 
@@ -38,5 +38,5 @@ M3 is static: it does not mutate a graph while scheduling, evaluate measurements
 - Zone quantities are active-interval capacity reservations, not a persistent occupancy simulation.
 - Resource demands name concrete configured resources; class-to-device allocation is deferred.
 - Fixed intervals are immutable reservations and are rejected if they already overbook capacity.
-- There is no preemption, setup-time insertion, travel-path collision model, stochastic duration, or crosstalk model.
+- There is no preemption, setup-time insertion, continuous travel-path dynamics, automatic geometric intersection discovery, stochastic duration, or crosstalk model.
 - M2 reference timings remain illustrative inputs rather than laboratory calibration claims.

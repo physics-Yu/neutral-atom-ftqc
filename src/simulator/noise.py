@@ -1,4 +1,1 @@
-"""Noise/loss model hooks for the digital twin.
-
-Detailed stochastic models are deferred until the baseline scheduling vertical slice is working.
-"""
+"""Noise/loss model hooks; stochastic models remain deferred after ideal M4 execution."""

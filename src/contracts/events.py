@@ -1,4 +1,4 @@
-"""Versioned observations emitted by the future digital twin."""
+"""Versioned observations emitted by digital-twin execution."""
 
 from __future__ import annotations
 
