@@ -18,6 +18,29 @@ class QECOpKind(StrEnum):
     TRANSVERSAL_CNOT = "transversal_cnot"
     MEASURE_LOGICAL = "measure_logical"
     QEC_BARRIER = "qec_barrier"
+    SYNDROME_ROUND = "syndrome_round"
+
+
+class SyndromeBasis(StrEnum):
+    X = "X"
+    Z = "Z"
+
+
+@dataclass(frozen=True, slots=True)
+class SyndromeInteraction:
+    check_id: str
+    basis: SyndromeBasis
+    ancilla_site_id: str
+    data_site_id: str
+    layer: int
+
+    def __post_init__(self) -> None:
+        for value, name in ((self.check_id, "check_id"), (self.ancilla_site_id, "ancilla_site_id"), (self.data_site_id, "data_site_id")):
+            require_id(value, name)
+        if not isinstance(self.basis, SyndromeBasis):
+            raise ContractValidationError("syndrome interaction basis must be X or Z")
+        if not isinstance(self.layer, int) or isinstance(self.layer, bool) or not 0 <= self.layer < 8:
+            raise ContractValidationError("syndrome interaction layer must be in [0, 8)")
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,6 +104,7 @@ class QECOp:
     strategy: str
     pairings: tuple[TransversalPair, ...] = ()
     rounds: int = 1
+    syndrome_interactions: tuple[SyndromeInteraction, ...] = ()
 
     def __post_init__(self) -> None:
         require_id(self.qec_op_id, "qec_op_id")
@@ -106,6 +130,28 @@ class QECOp:
             raise ContractValidationError("transversal_cnot requires explicit physical pairings")
         if self.kind is not QECOpKind.TRANSVERSAL_CNOT and self.pairings:
             raise ContractValidationError("only transversal_cnot may contain pairings")
+        if self.kind is QECOpKind.SYNDROME_ROUND:
+            if len(self.block_ids) != 1 or not self.syndrome_interactions:
+                raise ContractValidationError("syndrome_round requires one block and explicit interactions")
+            check_bases: dict[str, SyndromeBasis] = {}
+            ancillas: dict[str, str] = {}
+            layer_subjects: set[tuple[int, str]] = set()
+            for interaction in self.syndrome_interactions:
+                if not isinstance(interaction, SyndromeInteraction):
+                    raise ContractValidationError("syndrome_round interactions must be SyndromeInteraction values")
+                previous = check_bases.setdefault(interaction.check_id, interaction.basis)
+                if previous is not interaction.basis:
+                    raise ContractValidationError("one syndrome check cannot mix bases")
+                previous_ancilla = ancillas.setdefault(interaction.check_id, interaction.ancilla_site_id)
+                if previous_ancilla != interaction.ancilla_site_id:
+                    raise ContractValidationError("one syndrome check cannot mix ancillas")
+                for subject in (interaction.ancilla_site_id, interaction.data_site_id):
+                    key = (interaction.layer, subject)
+                    if key in layer_subjects:
+                        raise ContractValidationError("syndrome layer acts on one site more than once")
+                    layer_subjects.add(key)
+        elif self.syndrome_interactions:
+            raise ContractValidationError("only syndrome_round may contain syndrome interactions")
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,6 +184,8 @@ class QECProtocolIR:
                 raise ContractValidationError(f"QEC operation {op.qec_op_id!r} depends on itself")
             if op.kind is QECOpKind.TRANSVERSAL_CNOT:
                 _validate_pairings(op, blocks)
+            if op.kind is QECOpKind.SYNDROME_ROUND:
+                _validate_syndrome_interactions(op, blocks[op.block_ids[0]])
         _reject_cycles({op.qec_op_id: op.predecessors for op in self.operations})
 
     def to_dict(self) -> dict[str, Any]:
@@ -161,6 +209,11 @@ class QECProtocolIR:
                 PhysicalQubitRef(pair["control"]["block_id"], pair["control"]["site_id"]),
                 PhysicalQubitRef(pair["target"]["block_id"], pair["target"]["site_id"]),
             ) for pair in item.get("pairings", ())),
+            syndrome_interactions=tuple(SyndromeInteraction(
+                check_id=value["check_id"], basis=SyndromeBasis(value["basis"]),
+                ancilla_site_id=value["ancilla_site_id"], data_site_id=value["data_site_id"],
+                layer=value["layer"],
+            ) for value in item.get("syndrome_interactions", ())),
         ) for item in data["operations"])
         return cls(
             protocol_id=data["protocol_id"], source_circuit_id=data["source_circuit_id"],
@@ -190,6 +243,29 @@ def _validate_pairings(op: QECOp, blocks: Mapping[str, EncodedBlock]) -> None:
         raise ContractValidationError("transversal pairings must be a bijection over all data sites")
 
 
+def _validate_syndrome_interactions(op: QECOp, block: EncodedBlock) -> None:
+    data = set(block.data_site_ids)
+    ancillas = set(block.ancilla_site_ids)
+    seen_checks: dict[str, str] = {}
+    grouped_data: dict[str, set[str]] = {}
+    for item in op.syndrome_interactions:
+        if item.data_site_id not in data or item.ancilla_site_id not in ancillas:
+            raise ContractValidationError("syndrome interaction references a site outside its block")
+        owner = seen_checks.setdefault(item.check_id, item.ancilla_site_id)
+        if owner != item.ancilla_site_id:
+            raise ContractValidationError("syndrome check must have one owning ancilla")
+        support = grouped_data.setdefault(item.check_id, set())
+        if item.data_site_id in support:
+            raise ContractValidationError("syndrome check cannot repeat a data site")
+        support.add(item.data_site_id)
+        if (item.basis is SyndromeBasis.Z) != (item.layer < 4):
+            raise ContractValidationError("syndrome X/Z phases must occupy separate layer ranges")
+    if set(seen_checks.values()) != ancillas or len(seen_checks) != len(ancillas):
+        raise ContractValidationError("syndrome round must cover every ancilla check exactly once")
+    if any(len(support) not in {2, 4} for support in grouped_data.values()):
+        raise ContractValidationError("syndrome checks must have weight two or four")
+
+
 def _reject_cycles(edges: Mapping[str, tuple[str, ...]]) -> None:
     visiting: set[str] = set()
     visited: set[str] = set()
@@ -207,4 +283,5 @@ def _reject_cycles(edges: Mapping[str, tuple[str, ...]]) -> None:
 
     for node in edges:
         visit(node)
+
 

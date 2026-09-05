@@ -22,6 +22,7 @@ class StateBackend(Protocol):
     def apply_1q(self, atom: AtomState, operation: str) -> None: ...
     def apply_2q(self, control: AtomState, target: AtomState, gate: str) -> None: ...
     def measure(self, atom: AtomState, basis: str) -> int: ...
+    def syndrome_bit(self, check_id: str, basis: str, data_atom_ids: tuple[str, ...]) -> int: ...
 
 
 @dataclass(slots=True)
@@ -72,6 +73,11 @@ class DeterministicIdealBackend:
             deterministic = 1
         atom.qubit_label = QubitLabel.MEASURED
         return deterministic
+
+    def syndrome_bit(self, check_id: str, basis: str, data_atom_ids: tuple[str, ...]) -> int:
+        """Return the ideal no-error stabilizer eigenvalue bit."""
+
+        return 0
 
 
 @dataclass(slots=True)
@@ -296,6 +302,8 @@ class DigitalTwinExecutor:
         elif opcode is PhysicalOpcode.IMAGE_ATOMS:
             return tuple(self._presence_observation(task, state, run_id, observation_offset + index, atom_id) for index, atom_id in enumerate(task.instruction.operands))
         elif opcode is PhysicalOpcode.MEASURE_ATOMS:
+            if parameters["profile"] == "syndrome-readout-v0.1":
+                return (self._syndrome_observation(task, state, run_id, observation_offset),)
             return tuple(self._measurement_observation(task, state, run_id, observation_offset + index, atom, parameters["basis"]) for index, atom in enumerate(self._present_atoms(task.instruction.operands, state)))
         return ()
 
@@ -307,6 +315,34 @@ class DigitalTwinExecutor:
     def _measurement_observation(self, task: PhysicalTask, state: MachineState, run_id: str, index: int, atom: AtomState, basis: str) -> Observation:
         value = self.backend.measure(atom, basis)
         return Observation(f"obs-{run_id}-{index:04d}", ObservationKind.MEASUREMENT, state.now_ns, task.task_id, {"atom_id": atom.atom_id, "basis": basis, "value": value})
+
+    def _syndrome_observation(
+        self, task: PhysicalTask, state: MachineState, run_id: str, index: int,
+    ) -> Observation:
+        parameters = task.instruction.parameters
+        ancillas = self._present_atoms(task.instruction.operands, state)
+        by_id = {atom.atom_id: atom for atom in ancillas}
+        bits: dict[str, int] = {}
+        for check_id, check in parameters["checks"].items():
+            ancilla = by_id[check["ancilla_atom_id"]]
+            self.backend.measure(ancilla, parameters["basis"])
+            bit = self.backend.syndrome_bit(
+                check_id, check["basis"], tuple(check["data_atom_ids"]),
+            )
+            if bit not in (0, 1) or isinstance(bit, bool):
+                raise ContractValidationError("state backend syndrome bit must be integer zero or one")
+            bits[check_id] = bit
+        return Observation(
+            f"obs-{run_id}-{index:04d}", ObservationKind.SYNDROME,
+            state.now_ns, task.task_id,
+            {
+                "block_id": parameters["block_id"],
+                "logical_qubit_id": parameters["logical_qubit_id"],
+                "layout_id": parameters["layout_id"],
+                "round_index": parameters["round_index"],
+                "bits": bits,
+            },
+        )
 
     def _snapshot(self, snapshot_id: str, state: MachineState) -> MachineSnapshot:
         occupancy = state.zone_occupancy(self.target)
@@ -379,3 +415,4 @@ class DigitalTwinExecutor:
             }
             block.zone_id = zones.pop() if len(zones) == 1 else None
             block.trajectory_id = None
+

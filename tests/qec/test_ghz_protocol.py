@@ -44,3 +44,26 @@ def test_layout_mapping_must_be_exact() -> None:
     with pytest.raises(ContractValidationError, match="exactly once"):
         expand_to_qec_protocol(circuit, {"L0": layout})
 
+
+@pytest.mark.parametrize("distance,edge_count", [(3, 24), (5, 80)])
+def test_syndrome_round_has_eight_collision_free_interaction_layers(distance: int, edge_count: int) -> None:
+    circuit = build_ghz_logical_circuit(distance, syndrome_rounds=2)
+    protocol = build_ghz_qec_protocol(distance, syndrome_rounds=2)
+    logical_rounds = [op for op in circuit.operations if op.kind.value == "syndrome_round"]
+    qec_rounds = [op for op in protocol.operations if op.kind is QECOpKind.SYNDROME_ROUND]
+
+    assert len(logical_rounds) == len(qec_rounds) == 4
+    assert all(op.rounds == 2 for op in qec_rounds)
+    assert all(len(op.syndrome_interactions) == edge_count for op in qec_rounds)
+    for operation in qec_rounds:
+        assert {item.layer for item in operation.syndrome_interactions} == set(range(8))
+        for layer in range(8):
+            subjects = [
+                subject
+                for item in operation.syndrome_interactions if item.layer == layer
+                for subject in (item.ancilla_site_id, item.data_site_id)
+            ]
+            assert len(subjects) == len(set(subjects))
+    assert QECProtocolIR.from_json(protocol.to_json()) == protocol
+
+

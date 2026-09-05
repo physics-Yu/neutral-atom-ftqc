@@ -69,6 +69,15 @@ python examples/ghz_surface_code.py --distance 3 --visualize artifacts/ghz-d3.ht
 
 Both profiles execute the same 41-task measured graph. The reference low profile has a 1,266,400 ns makespan and serializes conflicting layer-two Rydberg gates; the higher-capacity profile has a 466,400 ns makespan and overlaps them. These are deterministic software-model results, not laboratory performance claims.
 
+M6 can append explicit syndrome rounds instead of final logical-data readout:
+
+```powershell
+$env:PYTHONPATH = "src;."
+python examples/ghz_surface_code.py --distance 3 --syndrome-rounds 1 --decode
+```
+
+For `d=3`, one round on each of four blocks produces a 133-task physical graph and four syndrome observations. The ideal backend reports all checks as zero. The runtime invokes the decoder, composes its frame delta without applying correction pulses, publishes one ready condition per block, and schedules a physical feedback sync no earlier than both decoder completion and the completed execution trace.
+
 ## First vertical slice
 
 The first executable GHZ milestone omits stochastic noise, atom loss, and full decoding. It proves that:
@@ -88,4 +97,5 @@ The second logical layer is an explicit scheduling test: its two CNOTs are logic
 ## Later extension
 
 After the baseline works, insert explicit QEC rounds and then deterministic atom-loss scenarios with reservoir refill and dynamic rescheduling.
+
 

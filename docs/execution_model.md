@@ -38,7 +38,13 @@ Movement is a two-event transition: task start moves atoms/blocks from a source 
 
 Every start, completion, and emitted observation is correlated with task ID, physical opcode, planned interval, resource/zone assignments, trajectory, logical/QEC provenance, and a deterministic state digest. Snapshots include per-atom and per-block location, zone occupancy, symbolic qubit-label counts, reservoir inventory, known erasures, and aligned-pair count. Canonical JSON makes a run replay-comparable byte for byte.
 
-The replaceable `StateBackend` boundary currently uses `DeterministicIdealBackend`. It tracks ideal symbolic labels for reset, H, `Ry(pi/2)`, X, and CZ and chooses reproducible X/Z measurement branches. It is deliberately not an amplitude/stabilizer/noise simulator and does not establish GHZ fidelity; M6 will add QEC/syndrome semantics and a later backend may implement full quantum-state fidelity.
+The replaceable `StateBackend` boundary currently uses `DeterministicIdealBackend`. It tracks ideal symbolic labels for reset, H, `Ry(pi/2)`, X, and CZ and chooses reproducible X/Z measurement branches. It is deliberately not an amplitude/stabilizer/noise simulator and does not establish GHZ fidelity.
+
+## M6 decoder feedback
+
+Syndrome extraction is expressed as reset, pulse, movement, alignment, CZ, measurement, and sync instructions; no QEC macro reaches the executor. Syndrome observations are grouped into per-block history windows and passed to an explicit decoder interface. Decoder output carries completion time, status, diagnostics, and a `PauliFrameDelta` rather than scheduler mutations.
+
+The runtime controller composes logical and sparse physical Pauli frames and publishes stable boolean message conditions. A follow-up physical sync task is both condition-gated and released no earlier than decoder completion. This establishes the feedback boundary without pretending that static M6 scheduling already supports live DAG mutation; preserving active intervals and rescheduling a changed graph remain M7 work.
 
 ## Dynamic runtime target
 
@@ -80,3 +86,4 @@ Ancilla loss and data loss are different.
 - Lost data atom: mark a known erasure, physically replace the atom, then use later QEC/decoding to recover encoded information when possible.
 
 A replacement atom must never be treated as automatically restoring the lost quantum state.
+

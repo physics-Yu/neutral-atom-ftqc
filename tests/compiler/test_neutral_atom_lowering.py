@@ -61,3 +61,30 @@ def test_finite_zone_capacity_is_checked_before_lowering() -> None:
     undersized = NeutralAtomTarget(machine, target.geometry, target.bindings)
     with pytest.raises(ContractValidationError, match="storage-zone"):
         lower_to_neutral_atom_tasks(build_ghz_qec_protocol(3), undersized)
+
+
+@pytest.mark.parametrize("distance", [3, 5])
+def test_syndrome_round_lowers_only_to_physical_primitives(distance: int) -> None:
+    protocol = build_ghz_qec_protocol(distance, syndrome_rounds=1)
+    graph = lower_to_neutral_atom_tasks(protocol, build_reference_target())
+    syndrome_tasks = [
+        task for task in graph.tasks
+        if task.provenance.qec_op_ids[0].startswith("qec-syndrome-")
+    ]
+
+    assert len(graph.tasks) == 133
+    assert len(syndrome_tasks) == 104
+    assert all(isinstance(task.instruction.opcode, PhysicalOpcode) for task in syndrome_tasks)
+    assert {task.instruction.opcode for task in syndrome_tasks} == {
+        PhysicalOpcode.RESET_ATOMS, PhysicalOpcode.APPLY_1Q_PULSE,
+        PhysicalOpcode.MOVE_BLOCK, PhysicalOpcode.ALIGN_ATOMS,
+        PhysicalOpcode.APPLY_2Q_RYDBERG_GATE, PhysicalOpcode.MEASURE_ATOMS,
+    }
+    measurements = [
+        task for task in syndrome_tasks
+        if task.instruction.parameters.get("profile") == "syndrome-readout-v0.1"
+    ]
+    assert len(measurements) == 4
+    assert all(len(task.instruction.parameters["checks"]) == distance**2 - 1 for task in measurements)
+    assert PhysicalTaskGraph.from_json(graph.to_json()) == graph
+

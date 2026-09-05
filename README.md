@@ -21,9 +21,9 @@ The lowest executable layer contains only operations that an experimental platfo
 
 ## Current status
 
-M0 through M5 are complete. The repository includes schema-v0.1 boundary contracts, a distance-parameterized rotated planar surface-code layout, immutable logical blocks and Pauli frames, a QEC protocol IR, validated Physical ISA semantics, finite zone/resource bindings, conflict-grouped transport trajectories, deterministic physical lowering, a non-preemptive RESST-style scheduler, a replayable idealized digital twin, and a standalone synchronized spatial/Gantt/event viewer. Contract and model tests cover both `d=3` and `d=5`.
+M0 through M6 are complete. The repository includes schema-v0.1 boundary contracts, a distance-parameterized rotated planar surface-code layout, immutable logical and physical Pauli frames, a QEC protocol IR, validated Physical ISA semantics, finite zone/resource bindings, conflict-grouped transport trajectories, deterministic physical lowering, a non-preemptive RESST-style scheduler, a replayable idealized digital twin, a standalone synchronized viewer, explicit stabilizer-extraction rounds, a reference single-error decoder, and decoder-conditioned runtime feedback. Contract and model tests cover both `d=3` and `d=5`.
 
-The next implementation milestone is **M6: explicit syndrome extraction, decoding, and Pauli-frame feedback**.
+The next implementation milestone is **M7: deterministic atom loss, refill, recovery, and partial rescheduling**.
 
 Run the complete measured baseline with `python examples/ghz_surface_code.py --distance 3 --execute --measure` after setting `PYTHONPATH=src;.` on Windows.
 
@@ -36,6 +36,14 @@ python examples/ghz_surface_code.py --distance 3 --visualize artifacts/ghz-d3.ht
 
 Open `artifacts/ghz-d3.html` directly in a browser. It embeds all data and code; `artifacts/ghz-d3.json` is emitted alongside it for inspection.
 
+Run one explicit ideal syndrome/decoder cycle with:
+
+```powershell
+$env:PYTHONPATH = "src;."
+python examples/ghz_surface_code.py --distance 3 --syndrome-rounds 1 --decode
+```
+
 See `AGENTS.md` for project-wide constraints and `docs/architecture_and_implementation_plan.md` for the milestone plan.
+
 
 

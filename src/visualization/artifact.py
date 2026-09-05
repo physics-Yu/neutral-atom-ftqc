@@ -7,7 +7,10 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from compiler.physical_ir import PhysicalTaskGraph
-from contracts.common import SCHEMA_VERSION, ContractValidationError, canonical_json, frozen_mapping, require_id
+from contracts.common import (
+    SCHEMA_VERSION, ContractValidationError, canonical_json, frozen_mapping,
+    require_id, to_primitive,
+)
 from hardware.zones import NeutralAtomTarget
 from scheduler.task import TimedSchedule
 from simulator.executor import ExecutionResult
@@ -122,7 +125,7 @@ def build_visualization_run(
         "kind": item.kind.value,
         "time_ns": item.observed_at_ns,
         "task_id": item.task_id,
-        "payload": dict(item.payload),
+        "payload": to_primitive(item.payload),
     } for item in result.observations.observations]
 
     resources = [{
@@ -199,3 +202,4 @@ def _max_parallelism(tasks: list[dict[str, Any]]) -> int:
         active += delta
         maximum = max(maximum, active)
     return maximum
+

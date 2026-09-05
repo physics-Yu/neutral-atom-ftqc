@@ -319,6 +319,8 @@ Logical GHZ
 
 ### M6：显式 syndrome、解码与 Pauli frame
 
+状态：**已完成**。已实现八层 stabilizer interaction lowering、结构化 syndrome history、确定性 clean/单 Pauli lookup decoder、稀疏 physical Pauli frame、logical frame delta 边界，以及由 decoder message 和完成时间共同释放的物理 continuation；具体限制见 `docs/qec_runtime.md`。
+
 - 目标：生成物理 syndrome 提取轮，建立观察到解码结果再到 Pauli frame 的闭环。
 - 文件：`src/qec/`、`src/decoder/{syndrome,decoder}.py`、新增 `src/runtime/`、编译器 lowering、对应测试。
 - 输入/输出：syndrome 物理任务 -> `ObservationBatch` -> `DecoderInput` -> `DecoderResult` -> `PauliFrameDelta`。
@@ -410,6 +412,7 @@ Logical GHZ
 4. 再冻结 syndrome/decoder/loss 物理协议，执行 M6-M7。
 5. 有实验参数后再执行 M8，避免过早把占位物理量固化为事实。
 
-在上述决策完成之前，不应开始大规模实现。M0 至 M5 已完成；下一项最小且有用的工作是 **M6：显式 syndrome、解码与 Pauli frame**。
+在上述决策完成之前，不应开始大规模实现。M0 至 M6 已完成；下一项最小且有用的工作是 **M7：确定性 atom loss、补位与动态重调度**。
+
 
 

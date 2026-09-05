@@ -6,7 +6,8 @@ from typing import Mapping
 
 from compiler.logical_ir import CodeFamily, LogicalCircuitIR, LogicalOpKind
 from compiler.qec_ir import (
-    EncodedBlock, PhysicalQubitRef, QECOp, QECOpKind, QECProtocolIR, TransversalPair,
+    EncodedBlock, PhysicalQubitRef, QECOp, QECOpKind, QECProtocolIR,
+    SyndromeBasis, SyndromeInteraction, TransversalPair,
 )
 from contracts.common import ContractValidationError
 from qec.surface_code import SiteRole, SurfaceCodeLayout
@@ -64,12 +65,20 @@ def expand_to_qec_protocol(
             )
         elif logical_op.kind is LogicalOpKind.MEASURE_LOGICAL:
             kind, strategy, pairings = QECOpKind.MEASURE_LOGICAL, "surface_code_measure", ()
+        elif logical_op.kind is LogicalOpKind.SYNDROME_ROUND:
+            kind, strategy, pairings = QECOpKind.SYNDROME_ROUND, "eight_layer_ancilla_extraction_v0.1", ()
         else:
             kind, strategy, pairings = QECOpKind.QEC_BARRIER, "dependency_barrier", ()
+        syndrome_interactions = (
+            _syndrome_interactions(layout_by_block[block_ids[0]])
+            if kind is QECOpKind.SYNDROME_ROUND else ()
+        )
         operations.append(QECOp(
             qec_op_id=qec_id, kind=kind, block_ids=block_ids,
             predecessors=predecessors, logical_op_id=logical_op.op_id,
             strategy=strategy, pairings=pairings,
+            rounds=logical_op.params.get("rounds", 1),
+            syndrome_interactions=syndrome_interactions,
         ))
 
     return QECProtocolIR(
@@ -102,4 +111,26 @@ def _transversal_pairings(
         )
         for coordinate in sorted(control_by_coordinate, key=lambda item: (item.y, item.x))
     )
+
+
+def _syndrome_interactions(layout: SurfaceCodeLayout) -> tuple[SyndromeInteraction, ...]:
+    """Copy checks into eight collision-free direction/basis layers."""
+
+    sites = {site.site_id: site for site in layout.sites}
+    orientation = {(-1, -1): 0, (1, -1): 1, (-1, 1): 2, (1, 1): 3}
+    interactions: list[SyndromeInteraction] = []
+    for check in layout.stabilizers:
+        ancilla = sites[check.ancilla_site_id]
+        for data_site_id in check.data_site_ids:
+            data = sites[data_site_id]
+            direction = (data.coordinate.x - ancilla.coordinate.x, data.coordinate.y - ancilla.coordinate.y)
+            if direction not in orientation:
+                raise ContractValidationError("syndrome interaction is not a nearest diagonal neighbor")
+            basis = SyndromeBasis(check.basis.value)
+            layer = orientation[direction] + (0 if basis is SyndromeBasis.Z else 4)
+            interactions.append(SyndromeInteraction(
+                check.check_id, basis, check.ancilla_site_id, data_site_id, layer,
+            ))
+    return tuple(sorted(interactions, key=lambda item: (item.layer, item.check_id, item.data_site_id)))
+
 

@@ -45,6 +45,8 @@ class NeutralAtomLowerer:
                 terminals = self._lower_transversal_cnot(operation, predecessors)
             elif operation.kind is QECOpKind.MEASURE_LOGICAL:
                 terminals = self._lower_measure(operation, blocks[operation.block_ids[0]], predecessors)
+            elif operation.kind is QECOpKind.SYNDROME_ROUND:
+                terminals = self._lower_syndrome(operation, blocks[operation.block_ids[0]], predecessors)
             elif operation.kind is QECOpKind.QEC_BARRIER:
                 terminals = self._lower_barrier(operation, predecessors)
             else:  # pragma: no cover - enum exhaustiveness guard
@@ -131,6 +133,110 @@ class NeutralAtomLowerer:
         )
         return (self._move(op, block.block_id, "readout", "storage", (task_id,), "move-from-readout"),)
 
+    def _lower_syndrome(self, op: QECOp, block: EncodedBlock, predecessors: tuple[str, ...]) -> tuple[str, ...]:
+        data_atoms = tuple(_atom(block.block_id, site) for site in block.data_site_ids)
+        ancilla_atoms = tuple(_atom(block.block_id, site) for site in block.ancilla_site_ids)
+        current = predecessors
+        for round_index in range(op.rounds):
+            prefix = f"r{round_index}"
+            reset_id = f"phy-{op.qec_op_id}-{prefix}-reset-ancillas"
+            self._add(
+                reset_id, PhysicalOpcode.RESET_ATOMS, ancilla_atoms,
+                {"state": "zero", "profile": "syndrome-ancilla-reset-v0.1", "purpose": "syndrome_extraction"},
+                current, {self.target.bindings.storage_zone_id: self._block_sizes[block.block_id]},
+                self.target.bindings.reset_resource_id, op,
+            )
+            prepare_id = f"phy-{op.qec_op_id}-{prefix}-prepare-ancillas-x"
+            self._add(
+                prepare_id, PhysicalOpcode.APPLY_1Q_PULSE, ancilla_atoms,
+                {"operation": "hadamard", "pulse_id": "syndrome-ancilla-h-v0.1"},
+                (reset_id,), {self.target.bindings.storage_zone_id: self._block_sizes[block.block_id]},
+                self.target.bindings.one_qubit_resource_id, op,
+            )
+            move_in = self._move(op, block.block_id, "storage", "entangling", (prepare_id,), f"{prefix}-move-in")
+            current = (move_in,)
+            for layer in range(4):
+                current = self._lower_syndrome_layer(op, block, round_index, layer, current)
+
+            data_h_before = f"phy-{op.qec_op_id}-{prefix}-data-h-before-x-checks"
+            self._add(
+                data_h_before, PhysicalOpcode.APPLY_1Q_PULSE, data_atoms,
+                {"operation": "hadamard", "pulse_id": "syndrome-data-h-v0.1"},
+                current, {self.target.bindings.entangling_zone_id: self._block_sizes[block.block_id]},
+                self.target.bindings.one_qubit_resource_id, op,
+            )
+            current = (data_h_before,)
+            for layer in range(4, 8):
+                current = self._lower_syndrome_layer(op, block, round_index, layer, current)
+
+            data_h_after = f"phy-{op.qec_op_id}-{prefix}-data-h-after-x-checks"
+            self._add(
+                data_h_after, PhysicalOpcode.APPLY_1Q_PULSE, data_atoms,
+                {"operation": "hadamard", "pulse_id": "syndrome-data-h-v0.1"},
+                current, {self.target.bindings.entangling_zone_id: self._block_sizes[block.block_id]},
+                self.target.bindings.one_qubit_resource_id, op,
+            )
+            ancilla_h = f"phy-{op.qec_op_id}-{prefix}-ancilla-h-before-readout"
+            self._add(
+                ancilla_h, PhysicalOpcode.APPLY_1Q_PULSE, ancilla_atoms,
+                {"operation": "hadamard", "pulse_id": "syndrome-ancilla-h-v0.1"},
+                (data_h_after,), {self.target.bindings.entangling_zone_id: self._block_sizes[block.block_id]},
+                self.target.bindings.one_qubit_resource_id, op,
+            )
+            move_out = self._move(op, block.block_id, "entangling", "storage", (ancilla_h,), f"{prefix}-move-out")
+            move_readout = self._move(op, block.block_id, "storage", "readout", (move_out,), f"{prefix}-move-to-readout")
+            measure_id = f"phy-{op.qec_op_id}-{prefix}-measure-syndrome"
+            checks: dict[str, dict[str, Any]] = {}
+            for item in op.syndrome_interactions:
+                check = checks.setdefault(item.check_id, {
+                    "basis": item.basis.value,
+                    "ancilla_atom_id": _atom(block.block_id, item.ancilla_site_id),
+                    "data_atom_ids": [],
+                })
+                check["data_atom_ids"].append(_atom(block.block_id, item.data_site_id))
+            self._add(
+                measure_id, PhysicalOpcode.MEASURE_ATOMS, ancilla_atoms,
+                {
+                    "basis": "z", "profile": "syndrome-readout-v0.1",
+                    "block_id": block.block_id, "logical_qubit_id": block.logical_qubit_id,
+                    "layout_id": block.layout_id, "round_index": round_index,
+                    "checks": checks,
+                },
+                (move_readout,), {self.target.bindings.readout_zone_id: self._block_sizes[block.block_id]},
+                self.target.bindings.readout_resource_id, op,
+            )
+            current = (self._move(op, block.block_id, "readout", "storage", (measure_id,), f"{prefix}-move-from-readout"),)
+        return current
+
+    def _lower_syndrome_layer(
+        self, op: QECOp, block: EncodedBlock, round_index: int, layer: int,
+        predecessors: tuple[str, ...],
+    ) -> tuple[str, ...]:
+        interactions = tuple(item for item in op.syndrome_interactions if item.layer == layer)
+        if not interactions:
+            return predecessors
+        pairs = tuple(
+            (_atom(block.block_id, item.data_site_id), _atom(block.block_id, item.ancilla_site_id))
+            for item in interactions
+        )
+        operands = tuple(atom for pair in pairs for atom in pair)
+        stem = f"phy-{op.qec_op_id}-r{round_index}-layer-{layer}"
+        align_id = f"{stem}-align"
+        self._add(
+            align_id, PhysicalOpcode.ALIGN_ATOMS, operands,
+            {"pairs": pairs, "alignment_profile": "surface-code-check-layer-v0.1"},
+            predecessors, {self.target.bindings.entangling_zone_id: self._block_sizes[block.block_id]},
+            self.target.bindings.transport_resource_id, op,
+        )
+        gate_id = f"{stem}-cz"
+        self._add(
+            gate_id, PhysicalOpcode.APPLY_2Q_RYDBERG_GATE, operands,
+            {"gate": "cz", "pulse_id": "syndrome-cz-v0.1", "pairs": pairs},
+            (align_id,), {self.target.bindings.entangling_zone_id: self._block_sizes[block.block_id]},
+            self.target.bindings.rydberg_resource_id, op,
+        )
+        return (gate_id,)
+
     def _lower_barrier(self, op: QECOp, predecessors: tuple[str, ...]) -> tuple[str, ...]:
         task_id = f"phy-{op.qec_op_id}-sync"
         self._add(
@@ -181,3 +287,4 @@ class NeutralAtomLowerer:
 
 def lower_to_neutral_atom_tasks(protocol: QECProtocolIR, target: NeutralAtomTarget) -> PhysicalTaskGraph:
     return NeutralAtomLowerer(target).lower(protocol)
+

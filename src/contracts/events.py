@@ -60,6 +60,24 @@ class Observation:
                 AtomRole(values["atom_role"])
             except ValueError as exc:
                 raise ContractValidationError("atom_loss atom_role is invalid") from exc
+        if self.kind is ObservationKind.SYNDROME:
+            required = {"block_id", "logical_qubit_id", "layout_id", "round_index", "bits"}
+            missing = required - values.keys()
+            if missing:
+                raise ContractValidationError(
+                    f"syndrome payload is missing: {', '.join(sorted(missing))}"
+                )
+            for name in ("block_id", "logical_qubit_id", "layout_id"):
+                require_id(values[name], f"syndrome {name}")
+            if not isinstance(values["round_index"], int) or isinstance(values["round_index"], bool) or values["round_index"] < 0:
+                raise ContractValidationError("syndrome round_index must be non-negative")
+            bits = values["bits"]
+            if not isinstance(bits, Mapping) or not bits:
+                raise ContractValidationError("syndrome bits must be a non-empty mapping")
+            for check_id, bit in bits.items():
+                require_id(check_id, "syndrome check ID")
+                if bit not in (0, 1) or isinstance(bit, bool):
+                    raise ContractValidationError("syndrome bits must be integer zero or one")
         object.__setattr__(self, "payload", frozen_mapping(values))
 
 
@@ -112,4 +130,5 @@ class ObservationBatch:
     @classmethod
     def from_json(cls, payload: str) -> "ObservationBatch":
         return cls.from_dict(parse_json(payload))
+
 

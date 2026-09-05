@@ -32,3 +32,16 @@ def test_one_artifact_compares_serial_and_parallel_ghz_runs(tmp_path) -> None:
     high_b = interval(1, "phy-qec-cx-L1-L3-rydberg-cz")
     assert low_a[1] <= low_b[0] or low_b[1] <= low_a[0]
     assert high_a == high_b
+
+
+def test_visualization_serializes_nested_syndrome_observations(tmp_path) -> None:
+    run = build_ghz_visualization_run(3, "low", syndrome_rounds=1)
+    _, json_path = write_visualization_artifact(
+        build_visualization_bundle("GHZ with QEC", run), tmp_path / "ghz-qec.html",
+    )
+    data = json.loads(json_path.read_text(encoding="utf-8"))["runs"][0]
+    syndromes = [item for item in data["observations"] if item["kind"] == "syndrome"]
+    assert len(syndromes) == 4
+    assert all(len(item["payload"]["bits"]) == 8 for item in syndromes)
+    assert data["metrics"]["task_count"] == 145
+

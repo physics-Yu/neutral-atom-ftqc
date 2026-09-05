@@ -16,7 +16,7 @@ The v0.1 opcode set is:
 | `apply_1q_pulse` | atoms; operation/pulse ID | storage, entangling | one-qubit control | calibrated unitary |
 | `apply_2q_rydberg_gate` | atoms; gate/pulse ID/pairs | entangling | Rydberg control | pairwise calibrated interaction |
 | `image_atoms` | atoms; profile | storage, readout, reservoir | imaging | emits presence observations |
-| `measure_atoms` | atoms; basis/profile | readout | readout | emits destructive qubit measurements |
+| `measure_atoms` | atoms; basis/profile; optional syndrome metadata | readout | readout | emits destructive qubit measurements or one structured syndrome sample |
 | `reset_atoms` | atoms; state/profile/purpose | storage, readout, reservoir | reset | prepares configured basis state |
 | `load_reservoir_atom` | one atom; profile | reservoir | reservoir loading | adds usable reservoir atom |
 | `place_atom` | replacement and vacant site; destination/profile/trajectory/source/destination | storage, reservoir | transport | restores occupancy, not quantum data |
@@ -104,4 +104,5 @@ M4 does not implement continuous collision dynamics, automated path planning, de
 - Transport has explicit in-transit state, endpoints, duration, and conflict groups.
 - The executor rejects invalid layer crossings, schedule conflicts, subject overlap, route omissions, and persistent capacity overflow.
 - Measured `d=3` and `d=5` GHZ workflows execute without state invariant violations and produce byte-stable traces.
+
 

@@ -108,6 +108,34 @@ class PhysicalInstruction:
         elif opcode is PhysicalOpcode.MEASURE_ATOMS:
             _require_operands(self, minimum=1)
             _require_parameters(parameters, "basis", "profile")
+            if parameters["profile"] == "syndrome-readout-v0.1":
+                missing = {
+                    "block_id", "logical_qubit_id", "layout_id", "round_index", "checks",
+                } - parameters.keys()
+                if missing:
+                    raise ContractValidationError(
+                        f"missing physical instruction parameters: {', '.join(sorted(missing))}"
+                    )
+                for name in ("block_id", "logical_qubit_id", "layout_id"):
+                    require_id(parameters[name], f"instruction parameter {name}")
+                if not isinstance(parameters["round_index"], int) or isinstance(parameters["round_index"], bool) or parameters["round_index"] < 0:
+                    raise ContractValidationError("syndrome readout round_index must be non-negative")
+                checks = parameters["checks"]
+                if not isinstance(checks, Mapping) or not checks:
+                    raise ContractValidationError("syndrome readout checks must be a non-empty mapping")
+                for check_id, check in checks.items():
+                    require_id(check_id, "syndrome readout check ID")
+                    if not isinstance(check, Mapping) or set(check) != {"basis", "ancilla_atom_id", "data_atom_ids"}:
+                        raise ContractValidationError("syndrome readout check fields are invalid")
+                    if check["basis"] not in {"X", "Z"} or not isinstance(check["data_atom_ids"], tuple) or not check["data_atom_ids"]:
+                        raise ContractValidationError("syndrome readout check basis/support is invalid")
+                    require_id(check["ancilla_atom_id"], "syndrome readout ancilla atom ID")
+                    for atom_id in check["data_atom_ids"]:
+                        require_id(atom_id, "syndrome readout data atom ID")
+                    if len(check["data_atom_ids"]) != len(set(check["data_atom_ids"])):
+                        raise ContractValidationError("syndrome readout support cannot repeat an atom")
+                if {check["ancilla_atom_id"] for check in checks.values()} != set(self.operands):
+                    raise ContractValidationError("syndrome readout must measure every check ancilla exactly once")
         elif opcode is PhysicalOpcode.RESET_ATOMS:
             _require_operands(self, minimum=1)
             _require_parameters(parameters, "state", "profile", "purpose")
@@ -392,4 +420,5 @@ def _reject_cycles(edges: Mapping[str, tuple[str, ...]]) -> None:
 
     for node in edges:
         visit(node)
+
 

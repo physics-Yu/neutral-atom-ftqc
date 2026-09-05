@@ -35,6 +35,7 @@ class LogicalOpKind(StrEnum):
     LOGICAL_CNOT = "logical_cnot"
     MEASURE_LOGICAL = "measure_logical"
     QEC_BARRIER = "qec_barrier"
+    SYNDROME_ROUND = "syndrome_round"
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,6 +82,7 @@ class LogicalOp:
             LogicalOpKind.PREPARE_LOGICAL_PLUS: 1,
             LogicalOpKind.LOGICAL_CNOT: 2,
             LogicalOpKind.MEASURE_LOGICAL: 1,
+            LogicalOpKind.SYNDROME_ROUND: 1,
         }.get(self.kind)
         if expected is not None and len(self.operands) != expected:
             raise ContractValidationError(f"{self.kind.value} requires {expected} operand(s)")
@@ -88,6 +90,10 @@ class LogicalOp:
             raise ContractValidationError("logical_cnot control and target must differ")
         if self.kind is LogicalOpKind.QEC_BARRIER and not self.operands:
             raise ContractValidationError("qec_barrier requires at least one logical qubit")
+        if self.kind is LogicalOpKind.SYNDROME_ROUND:
+            rounds = self.params.get("rounds", 1)
+            if not isinstance(rounds, int) or isinstance(rounds, bool) or rounds <= 0:
+                raise ContractValidationError("syndrome_round rounds must be a positive integer")
         object.__setattr__(self, "params", frozen_mapping(self.params))
 
 
@@ -172,4 +178,5 @@ def _reject_cycles(edges: Mapping[str, tuple[str, ...]], label: str) -> None:
 
     for node in edges:
         visit(node)
+
 
