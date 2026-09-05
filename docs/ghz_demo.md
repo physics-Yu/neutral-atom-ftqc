@@ -41,7 +41,7 @@ The logical algorithm is intentionally small. The demo is intended to expose the
 - machine-state evolution;
 - later: syndrome/QEC feedback and atom-loss recovery.
 
-## M4 implementation status
+## M5 implementation status
 
 `examples/ghz_surface_code.py` now builds `LogicalCircuitIR`, `QECProtocolIR`, and a complete `PhysicalTaskGraph`. The QEC expansion creates four encoded rotated-planar blocks and an explicit `d^2`-pair bijection for every transversal logical CNOT. The two layer-two CNOTs retain no dependency on one another.
 
@@ -51,6 +51,8 @@ M3 assigns deterministic non-preemptive start/end times under explicit resource,
 
 With `--measure`, four logical-data readouts are appended and each block returns to storage after measurement. The `d=3` baseline executes 41 physical tasks and emits 36 measurements; `d=5` executes the same task shape with wider batches and emits 100 measurements. The symbolic ideal backend proves the execution/state contracts, not encoded GHZ fidelity.
 
+M5 projects the validated physical graph, timed schedule, execution trace, observations, target geometry, and scheduler wait diagnostics into a standalone artifact. Its spatial view animates block locations along configured trajectories, its Gantt view shows every claimed hardware/corridor resource, and its event stream follows the same integer-nanosecond cursor. The viewer is read-only and cannot modify the schedule or machine state.
+
 Run:
 
 ```powershell
@@ -58,9 +60,18 @@ $env:PYTHONPATH = "src;."
 python examples/ghz_surface_code.py --distance 3 --execute --measure
 ```
 
+Generate the low/high resource comparison:
+
+```powershell
+$env:PYTHONPATH = "src;."
+python examples/ghz_surface_code.py --distance 3 --visualize artifacts/ghz-d3.html --compare-resources
+```
+
+Both profiles execute the same 41-task measured graph. The reference low profile has a 1,266,400 ns makespan and serializes conflicting layer-two Rydberg gates; the higher-capacity profile has a 466,400 ns makespan and overlaps them. These are deterministic software-model results, not laboratory performance claims.
+
 ## First vertical slice
 
-The first executable GHZ milestone should omit stochastic noise, atom loss, and full decoding. It should prove that:
+The first executable GHZ milestone omits stochastic noise, atom loss, and full decoding. It proves that:
 
 ```text
 Logical GHZ circuit

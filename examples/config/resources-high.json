@@ -1,0 +1,10 @@
+{
+  "machine_config_id": "reference-neutral-atom-high-v0.1",
+  "resource_capacities": {
+    "aod-0": 4,
+    "oneq-0": 2,
+    "rydberg-0": 2,
+    "corridor-storage-entangling": 4,
+    "corridor-storage-readout": 4
+  }
+}

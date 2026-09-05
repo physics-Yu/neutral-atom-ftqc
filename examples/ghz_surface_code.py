@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import json
+from dataclasses import replace
+from pathlib import Path
 
 from compiler.compiler import expand_to_qec_protocol
 from compiler.logical_ir import (
@@ -12,12 +15,35 @@ from compiler.logical_ir import (
 from compiler.lowering.neutral_atom import lower_to_neutral_atom_tasks
 from compiler.physical_ir import PhysicalTaskGraph
 from compiler.qec_ir import QECProtocolIR
-from hardware.zones import build_reference_target
+from hardware.zones import NeutralAtomTarget, build_reference_target
 from hardware.hardware_state import MachineState
 from qec.surface_code import SurfaceCodeSpec, generate_surface_code_layout
 from scheduler.resst import schedule_physical_tasks
 from scheduler.task import ScheduleRequest, TimedSchedule
 from simulator.executor import DigitalTwinExecutor, ExecutionResult
+from visualization import (
+    VisualizationRun, build_visualization_bundle, build_visualization_run,
+    write_visualization_artifact,
+)
+
+
+CONFIG_DIR = Path(__file__).with_name("config")
+
+
+def build_profile_target(profile: str = "low") -> NeutralAtomTarget:
+    """Apply an explicit demo resource profile without changing the physical DAG."""
+
+    config_path = CONFIG_DIR / f"resources-{profile}.json"
+    if not config_path.is_file():
+        raise ValueError(f"unknown resource profile {profile!r}")
+    data = json.loads(config_path.read_text(encoding="utf-8"))
+    target = build_reference_target()
+    capacities = data["resource_capacities"]
+    resources = tuple(
+        replace(item, capacity=capacities.get(item.resource_id, item.capacity))
+        for item in target.machine.resources
+    )
+    return NeutralAtomTarget(replace(target.machine, machine_id=data["machine_config_id"], resources=resources), target.geometry, target.bindings)
 
 
 def build_ghz_logical_circuit(distance: int = 3, include_measurements: bool = False) -> LogicalCircuitIR:
@@ -68,14 +94,14 @@ def build_ghz_physical_graph(distance: int = 3, include_measurements: bool = Fal
     return lower_to_neutral_atom_tasks(build_ghz_qec_protocol(distance, include_measurements), build_reference_target())
 
 
-def build_ghz_schedule(distance: int = 3, include_measurements: bool = False) -> TimedSchedule:
-    target = build_reference_target()
+def build_ghz_schedule(distance: int = 3, include_measurements: bool = False, profile: str = "low") -> TimedSchedule:
+    target = build_profile_target(profile)
     graph = lower_to_neutral_atom_tasks(build_ghz_qec_protocol(distance, include_measurements), target)
     return schedule_physical_tasks(ScheduleRequest(f"ghz-d{distance}", graph, target.machine))
 
 
-def build_ghz_execution(distance: int = 3, include_measurements: bool = True) -> ExecutionResult:
-    target = build_reference_target()
+def build_ghz_execution(distance: int = 3, include_measurements: bool = True, profile: str = "low") -> ExecutionResult:
+    target = build_profile_target(profile)
     protocol = build_ghz_qec_protocol(distance, include_measurements)
     graph = lower_to_neutral_atom_tasks(protocol, target)
     schedule = schedule_physical_tasks(ScheduleRequest(f"ghz-execution-d{distance}", graph, target.machine))
@@ -83,15 +109,29 @@ def build_ghz_execution(distance: int = 3, include_measurements: bool = True) ->
     return DigitalTwinExecutor(target).execute(f"ghz-d{distance}", graph, schedule, initial_state)
 
 
+def build_ghz_visualization_run(distance: int, profile: str) -> VisualizationRun:
+    target = build_profile_target(profile)
+    protocol = build_ghz_qec_protocol(distance, include_measurements=True)
+    graph = lower_to_neutral_atom_tasks(protocol, target)
+    schedule = schedule_physical_tasks(ScheduleRequest(f"ghz-visual-{profile}-d{distance}", graph, target.machine))
+    result = DigitalTwinExecutor(target).execute(f"ghz-{profile}-d{distance}", graph, schedule, MachineState.from_protocol(protocol, target))
+    return build_visualization_run(f"{profile.title()} resources · d={distance}", target, graph, schedule, result)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--distance", type=int, default=3)
     parser.add_argument("--execute", action="store_true", help="execute the complete scheduled digital-twin trace")
     parser.add_argument("--measure", action="store_true", help="append destructive logical-data readout")
+    parser.add_argument("--profile", choices=("low", "high"), default="low", help="hardware resource profile")
+    parser.add_argument("--visualize", type=Path, metavar="OUTPUT.html", help="write a standalone synchronized HTML and JSON artifact")
+    parser.add_argument("--compare-resources", action="store_true", help="include low/high resource runs in the artifact")
     args = parser.parse_args()
-    protocol = build_ghz_qec_protocol(args.distance, args.measure)
-    graph = build_ghz_physical_graph(args.distance, args.measure)
-    schedule = build_ghz_schedule(args.distance, args.measure)
+    include_measurements = args.measure or args.visualize is not None
+    protocol = build_ghz_qec_protocol(args.distance, include_measurements)
+    target = build_profile_target(args.profile)
+    graph = lower_to_neutral_atom_tasks(protocol, target)
+    schedule = schedule_physical_tasks(ScheduleRequest(f"ghz-d{args.distance}", graph, target.machine))
     cnot_ops = [op for op in protocol.operations if op.kind.value == "transversal_cnot"]
     print(
         f"Built {protocol.protocol_id}: {len(protocol.blocks)} blocks, "
@@ -101,12 +141,20 @@ def main() -> None:
         f"scheduled makespan {schedule.makespan_ns} ns."
     )
     if args.execute:
-        result = build_ghz_execution(args.distance, args.measure)
+        result = build_ghz_execution(args.distance, include_measurements, args.profile)
         print(
             f"Executed {len(result.trace.events)} trace events and emitted "
             f"{len(result.observations.observations)} observations; "
             f"final state digest {result.trace.snapshots[-1].state_digest[:12]}."
         )
+    if args.visualize:
+        profiles = ("low", "high") if args.compare_resources else (args.profile,)
+        runs = tuple(build_ghz_visualization_run(args.distance, profile) for profile in profiles)
+        html_path, json_path = write_visualization_artifact(
+            build_visualization_bundle(f"Four-block GHZ · distance {args.distance}", *runs),
+            args.visualize,
+        )
+        print(f"Wrote standalone visualization {html_path} and data {json_path}.")
 
 
 if __name__ == "__main__":

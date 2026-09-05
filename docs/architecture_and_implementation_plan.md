@@ -308,6 +308,8 @@ Logical GHZ
 
 ### M5：三视图可视化与理想 GHZ 纵向切片
 
+状态：**已完成**。只读可视化投影、单文件离线 HTML、JSON sidecar、共享时间游标、低/高资源切换和端到端 GHZ 对照均已实现；具体契约与限制见 `docs/visualization.md`。
+
 - 目标：同步显示空间、Gantt 与事件，完成无损失基线演示。
 - 文件：新增 `src/visualization/`，完善 `examples/ghz_surface_code.py`，新增 `examples/config/`、`tests/e2e/`，更新 `README.md` 与 `docs/ghz_demo.md`。
 - 输入/输出：`ExecutionTrace + PhysicalTaskGraph + TimedSchedule` -> 独立 HTML/JSON 产物或本地 UI。
@@ -408,6 +410,6 @@ Logical GHZ
 4. 再冻结 syndrome/decoder/loss 物理协议，执行 M6-M7。
 5. 有实验参数后再执行 M8，避免过早把占位物理量固化为事实。
 
-在上述决策完成之前，不应开始大规模实现。M0 至 M4 已完成；下一项最小且有用的工作是 **M5：三视图可视化与理想 GHZ 纵向切片**。
+在上述决策完成之前，不应开始大规模实现。M0 至 M5 已完成；下一项最小且有用的工作是 **M6：显式 syndrome、解码与 Pauli frame**。
 
 
